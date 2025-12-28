@@ -18,10 +18,7 @@ st.set_page_config(page_title="學思戰術指揮系統", layout="wide", page_ic
 # --- 2. 視覺風格與寬度優化 ---
 st.markdown("""
 <style>
-    .main .block-container {
-        max-width: 1000px;
-        padding-top: 2rem;
-    }
+    .main .block-container { max-width: 1000px; padding-top: 2rem; }
     .stApp { background-color: #1a1c23; color: #e5e9f0; }
     .main-header { text-align: center; color: #88c0d0; font-weight: 800; font-size: 2.2rem; margin-bottom: 1.5rem; }
     .stButton>button { 
@@ -35,7 +32,6 @@ st.markdown("""
         background-color: #2e3440; padding: 30px; border-radius: 15px; border: 1px solid #88c0d0; 
         margin-bottom: 20px; box-shadow: 0px 8px 16px rgba(0,0,0,0.4); line-height: 1.8;
     }
-    [data-testid="stWidgetLabel"] p { color: #88c0d0 !important; font-weight: 600; font-size: 1rem; }
     .warning-note { background-color: #444b5a; padding: 15px; border-radius: 8px; font-size: 0.85rem; color: #ebcb8b; border: 1px dashed #ebcb8b; margin-bottom: 20px; }
 </style>
 """, unsafe_allow_html=True)
@@ -60,10 +56,8 @@ if not st.session_state.authenticated:
     _, col_m, _ = st.columns([0.5, 1, 0.5])
     with col_m:
         st.markdown("<h2 style='text-align:center; color:#88c0d0;'>戰情系統登入</h2>", unsafe_allow_html=True)
-        pwd = st.text_input("輸入授權碼：", type="password")
-        if pwd == AUTH_CODE:
-            st.session_state.authenticated = True
-            st.rerun()
+        if st.text_input("輸入授權碼：", type="password") == AUTH_CODE:
+            st.session_state.authenticated = True; st.rerun()
     st.stop()
 
 st.markdown('<h1 class="main-header">🏫 「學思戰情」學期段考調度系統</h1>', unsafe_allow_html=True)
@@ -73,7 +67,7 @@ tab_entry, tab_view, tab_analysis = st.tabs(["📝 影像診斷錄入", "🔍 �
 
 # --- Tab 1: 影像診斷錄入 ---
 with tab_entry:
-    st.markdown('<div class="warning-note">⚠️ 系統提示：所有 AI 建議皆基於學術事實。建議中提及之章節名稱為觀念索引，請依據校內實際教材版本進行對照。</div>', unsafe_allow_html=True)
+    st.markdown('<div class="warning-note">⚠️ 系統提示：所有 AI 建議皆基於學科知識事實，禁止編造頁碼，請依實際教材對照。</div>', unsafe_allow_html=True)
     with st.container():
         st.markdown('<div class="input-card">', unsafe_allow_html=True)
         col1, col2 = st.columns(2)
@@ -90,12 +84,7 @@ with tab_entry:
             with st.spinner("AI 事實掃描中..."):
                 img = Image.open(uploaded_file)
                 v_res = ai_engine.generate_content([
-                    f"""你是一位嚴謹的教育診斷專家。請分析這張{subject}考卷：
-                    1. 條列具體錯題題號。
-                    2. 標註對應的【知識點名稱】(嚴禁編造課本頁碼)。
-                    3. 判讀錯誤本質(運算/觀念/理解)。
-                    僅提供事實清單，嚴禁美化或情緒鼓勵。""", 
-                    img
+                    "你是一位嚴謹的教育分析師。請列出題號、知識點名稱，並判讀錯誤本質。嚴禁編造課本頁碼，僅提供事實清單。", img
                 ])
                 st.session_state.v_obs = v_res.text
         
@@ -104,19 +93,11 @@ with tab_entry:
         if st.button("🚀 生成數據診斷並存檔"):
             if stu_id and obs:
                 with st.spinner("數據同步中..."):
-                    diag_prompt = f"""
-                    你是段考顧問。針對事實紀錄：{obs}。
-                    請給出 150 字內補強策略。
-                    要求：
-                    1. 建議必須精確對應上述知識點。
-                    2. 提供可執行的物理動作。
-                    3. 嚴禁編造具體課本頁碼。
-                    """
-                    diag = ai_engine.generate_content(diag_prompt).text
+                    diag = ai_engine.generate_content(f"基於事實：{obs}，提供 150 字內補強策略。嚴禁編造頁碼，需可受檢核。").text
+                    # 確保寫入的欄位順序與標頭一致
                     hub_sheet.append_row([datetime.now().strftime("%Y-%m-%d %H:%M"), stu_id, subject, exam_range, score, obs, diag])
-                    st.success("✅ 數據存檔成功！")
-                    st.session_state.v_obs = ""
-            else: st.warning("請填寫學生代號。")
+                    st.success("✅ 數據存檔成功！"); st.session_state.v_obs = ""
+            else: st.warning("請填寫必要欄位。")
         st.markdown('</div>', unsafe_allow_html=True)
 
 # --- Tab 2: 歷史數據庫 ---
@@ -127,12 +108,13 @@ with tab_view:
         if not raw_df.empty:
             st.dataframe(raw_df.sort_values(by="日期時間", ascending=False), use_container_width=True)
 
-# --- Tab 3: 戰術分析室 ---
+# --- Tab 3: 戰術分析室 (欄位對齊修正) ---
 with tab_analysis:
     if hub_sheet:
         raw_data = hub_sheet.get_all_records()
         if raw_data:
             df = pd.DataFrame(raw_data)
+            # 關鍵修正點：確保 DataFrame 欄位名稱與 Sheet 標頭完全一致
             df['成績'] = pd.to_numeric(df['測驗成績'], errors='coerce').fillna(0)
             
             stu_list = df['學生代號'].unique()
@@ -157,26 +139,20 @@ with tab_analysis:
                     if st.button(f"執行 {sel_stu} 跨科共性分析"):
                         with st.spinner("數據交叉比對中..."):
                             cross_context = "\n".join([f"{r['學科類別']}：{r['AI診斷與建議']}" for _, r in stu_df.head(10).iterrows()])
-                            dispatch_prompt = f"""
-                            分析以下錯誤模式：{cross_context}
-                            1. 指出跨科共同錯誤習慣。
-                            2. 優先解決的兩項弱點。
-                            (嚴禁編造頁碼，事實導向)
-                            """
-                            dispatch_res = ai_engine.generate_content(dispatch_prompt).text
-                            st.markdown(f'<div class="special-box" style="border-left: 8px solid #bf616a;">{dispatch_res.replace("\n", "<br>")}</div>', unsafe_allow_html=True)
-
+                            dispatch_res = ai_engine.generate_content(f"分析以下跨科錯誤並指出共同模式，嚴禁頁碼：{cross_context}").text
+                            st.markdown(f'<div class="special-box">{dispatch_res.replace("\n", "<br>")}</div>', unsafe_allow_html=True)
                 else:
                     target_sub = sel_mode
                     if st.button(f"生成 {target_sub} 精準補強建議"):
                         with st.spinner(f"分析 {target_sub} 趨勢..."):
                             history_context = "\n".join([f"範圍:{r['考試範圍']}, 紀錄:{r['導師觀察摘要']}" for _, r in stu_df[stu_df['學科類別'] == target_sub].head(5).iterrows()])
-                            hunt_prompt = f"""
-                            針對 {target_sub} 的歷史紀錄：{history_context}
-                            請生成建議：
-                            1. 核心陷阱辨識。
-                            2. 動作導向複習建議(禁止頁碼，指引至章節標題)。
-                            3. 段考考前必讀觀念。
-                            """
-                            hunt_res = ai_engine.generate_content(hunt_prompt).text
+                            hunt_res = ai_engine.generate_content(f"針對 {target_sub} 紀錄提供段考複習建議，嚴禁頁碼：{history_context}").text
                             st.markdown(f'<div class="special-box">{hunt_res.replace("\n", "<br>")}</div>', unsafe_allow_html=True)
+
+                st.divider()
+                for s in stu_df['學科類別'].unique():
+                    st.markdown(f'<div class="subject-header">📚 {s} 歷史數據明細</div>', unsafe_allow_html=True)
+                    for _, row in stu_df[stu_df['學科類別'] == s].iterrows():
+                        st.markdown(f'<div class="range-card"><b>🎯 範圍：{row["考試範圍"]}</b> ({row["測驗成績"]}分)<br><p style="margin-top:10px;"><b>事實紀錄：</b>{row["AI診斷與建議"]}</p></div>', unsafe_allow_html=True)
+        else:
+            st.info("💡 資料庫尚無數據。")
