@@ -61,25 +61,25 @@ def generate_pdf_report(stu_id, subject, exam_range, tags, obs, diag):
     pdf = FPDF()
     pdf.add_page()
     
-    # 載入中文字體 (需確保 font.ttf 存在於專案目錄中)
     font_path = "font.ttf"
     if os.path.exists(font_path):
         pdf.add_font('CustomFont', '', font_path)
         pdf.set_font('CustomFont', size=16)
     else:
-        pdf.set_font('Arial', size=14) # 若無字體則回退
+        pdf.set_font('Arial', size=14)
 
     pdf.cell(200, 10, txt=f"學習診斷個人報告：{stu_id}", ln=True, align='C')
     
-    if os.path.exists(font_path): pdf.set_font('CustomFont', size=12)
+    if os.path.exists(font_path): pdf.set_font('CustomFont', size=11)
     pdf.ln(10)
     pdf.cell(200, 10, txt=f"科目：{subject} | 範圍：{exam_range}", ln=True)
     pdf.cell(200, 10, txt=f"核心行為標籤：{tags}", ln=True)
     pdf.ln(5)
-    pdf.multi_cell(0, 10, txt=f"【錯題事實與敘述】\n{obs}")
+    pdf.multi_cell(0, 8, txt=f"【錯題事實與敘述】\n{obs}")
     pdf.ln(5)
-    pdf.multi_cell(0, 10, txt=f"【AI 補強指導建議】\n{diag}")
-    return pdf.output()
+    pdf.multi_cell(0, 8, txt=f"【AI 補強指導建議】\n{diag}")
+    
+    return bytes(pdf.output())
 
 # --- 6. 主程式 ---
 st.markdown('<h1 class="main-header">🏫 「學思戰情」深度段考診斷系統</h1>', unsafe_allow_html=True)
@@ -87,7 +87,7 @@ ai_engine, hub_sheet = init_services()
 
 tab_entry, tab_view, tab_analysis = st.tabs(["📝 影像/PDF 深度診讀", "🔍 歷史數據庫", "📊 戰術分析室"])
 
-# --- Tab 1: 診斷錄入 (含標籤化功能) ---
+# --- Tab 1: 診斷錄入 ---
 with tab_entry:
     with st.container():
         st.markdown('<div class="input-card">', unsafe_allow_html=True)
@@ -95,39 +95,39 @@ with tab_entry:
         with col1: stu_id = st.text_input("📍 學生代號", placeholder="例：809-01")
         with col2: subject = st.selectbox("📚 學科類別", ["國文", "英文", "數學", "理化", "歷史", "地理", "公民"])
         
-        exam_range = st.text_input("🎯 段考範圍", placeholder="例：第一次段考")
+        exam_range = st.text_input("🎯 段考範圍")
         score = st.number_input("💯 測驗成績", 0, 100, 60)
-        uploaded_files = st.file_uploader("📷 上傳考卷 (支援多圖或單份 PDF)", type=["jpg", "jpeg", "png", "pdf"], accept_multiple_files=True)
+        uploaded_files = st.file_uploader("📷 上傳考卷 (支援多圖或 PDF)", type=["jpg", "jpeg", "png", "pdf"], accept_multiple_files=True)
         diag_mode = st.radio("🛠️ 診斷模式", ["⚡ 快速掃描 (含詳盡敘述)", "🧠 深度運算 (含步驟驗證)"], horizontal=True)
 
         if "v_obs" not in st.session_state: st.session_state.v_obs = ""
         
         if uploaded_files and st.button("🔍 執行事實診讀"):
-            with st.spinner("AI 正在解析內容並標記行為特徵..."):
+            with st.spinner("AI 正在分析並標記行為特徵..."):
                 input_data = []
                 for f in uploaded_files:
                     if f.type == "application/pdf": input_data.append({"mime_type": "application/pdf", "data": f.read()})
                     else: input_data.append(Image.open(f))
                 
-                prompt = """你是一位教育診斷專家。請分析檔案，產出：
+                prompt = """你是一位教育診斷專家。請分析檔案內容，產出：
                 1. 錯題題號、正答、知識點。
                 2. 【詳述】學生的具體錯誤內容與原因（內容敘述）。
-                3. 【行為標籤】：請從以下選擇 1-3 個最符合的：#閱讀不周、#邏輯斷層、#運算粗心、#概念混淆、#單字不足、#圖表判讀弱。
-                要求：詳盡、去美化、嚴禁編造頁碼。"""
+                3. 【行為標籤】：請從以下選擇 1-3 個：#閱讀不周、#邏輯斷層、#運算粗心、#概念混淆、#單字不足、#圖表判讀弱。
+                要求：去美化，嚴禁編造頁碼。"""
                 
                 v_res = ai_engine.generate_content([prompt] + input_data)
                 st.session_state.v_obs = v_res.text
         
-        obs = st.text_area("🔍 錯誤事實與指導紀錄", value=st.session_state.v_obs, height=450)
+        obs = st.text_area("🔍 錯誤事實與指導紀錄", value=st.session_state.v_obs, height=400)
 
         if st.button("🚀 同步至戰術庫"):
             if stu_id and obs:
-                with st.spinner("戰術歸檔中..."):
-                    tag_res = ai_engine.generate_content(f"從以下內容提取標籤（僅回傳標籤內容）：{obs}").text
-                    diag = ai_engine.generate_content(f"基於事實：{obs}。產出具備指導價值的複習建議。去美化。").text
+                with st.spinner("數據分析中..."):
+                    tag_res = ai_engine.generate_content(f"從以下內容提取標籤（僅回傳標籤文字）：{obs}").text
+                    diag = ai_engine.generate_content(f"基於事實：{obs}。產出具備指導價值的複習建議。去美化，嚴禁頁碼。").text
                     hub_sheet.append_row([datetime.now().strftime("%Y-%m-%d %H:%M"), stu_id, subject, exam_range, score, obs, diag, tag_res])
                     st.success("✅ 數據與行為標籤已成功歸檔！"); st.session_state.v_obs = ""
-            else: st.warning("請完整輸入資料。")
+            else: st.warning("請完整填寫欄位。")
         st.markdown('</div>', unsafe_allow_html=True)
 
 # --- Tab 2: 歷史數據庫 ---
@@ -137,7 +137,7 @@ with tab_view:
         raw_df = pd.DataFrame(hub_sheet.get_all_records())
         if not raw_df.empty: st.dataframe(raw_df.sort_values(by="日期時間", ascending=False), use_container_width=True)
 
-# --- Tab 3: 戰術分析室 (含 PDF 導出) ---
+# --- Tab 3: 戰術分析室 ---
 with tab_analysis:
     if hub_sheet:
         raw_data = hub_sheet.get_all_records()
@@ -154,7 +154,7 @@ with tab_analysis:
                 fig_radar.update_traces(fill='toself', line_color='#88c0d0')
                 st.plotly_chart(fig_radar, use_container_width=True)
 
-                # 1. 行為標籤趨勢
+                # 行為標籤統計
                 st.markdown("### 🏷️ 個人學習行為特徵統計")
                 all_tags = stu_df['錯誤屬性標籤'].str.cat(sep=' ').split()
                 if all_tags:
@@ -165,30 +165,29 @@ with tab_analysis:
                 
                 st.divider()
                 sub_list_hist = sorted(list(stu_df['學科類別'].unique()))
-                sel_sub_hist = st.selectbox("🔍 選擇科目檢視：", sub_list_hist)
+                sel_sub_hist = st.selectbox("🔍 選擇科目明細：", sub_list_hist)
                 target_records = stu_df[stu_df['學科類別'] == sel_sub_hist]
 
                 # 考前戰術生成
                 st.markdown(f"### 🚀 {sel_sub_hist} 科：考前戰術指令")
                 if st.button("🧠 彙整歷史漏洞"):
                     history_blob = "\n".join([f"{r['考試範圍']}:{r['導師觀察摘要']}" for _, r in target_records.head(5).iterrows()])
-                    tips_res = ai_engine.generate_content(f"分析紀錄：{history_blob}。產出考前指令。").text
+                    tips_res = ai_engine.generate_content(f"分析紀錄：{history_blob}。產出考前戰術指令。").text
                     st.markdown(f'<div class="tactical-advice">{tips_res.replace("\n", "<br>")}</div>', unsafe_allow_html=True)
 
                 st.divider()
-                # 3. PDF 報告下載
                 st.markdown("### 📋 診斷明細與報告導出")
                 for _, row in target_records.iterrows():
                     with st.expander(f"🎯 {row['考試範圍']} - {row['測驗成績']}分"):
                         st.markdown(f"**行為特徵：** `{row['錯誤屬性標籤']}`")
                         st.write(row['導師觀察摘要'])
                         
-                        # 生成 PDF
                         pdf_bytes = generate_pdf_report(sel_stu, sel_sub_hist, row['考試範圍'], row['錯誤屬性標籤'], row['導師觀察摘要'], row['AI診斷與建議'])
                         st.download_button(
                             label="📥 下載中文診斷報告 (PDF)",
                             data=pdf_bytes,
                             file_name=f"Report_{sel_stu}_{row['考試範圍']}.pdf",
-                            mime="application/pdf"
+                            mime="application/pdf",
+                            key=f"dl_{row['日期時間']}"
                         )
-        else: st.info("💡 目前資料庫尚無數據。")
+        else: st.info("💡 資料庫尚無數據。")
