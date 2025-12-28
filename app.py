@@ -19,10 +19,10 @@ st.markdown("""
     <style>
     .stApp { background-color: #1a1c23; color: #e5e9f0; }
     .main-header { text-align: center; color: #88c0d0; font-weight: 800; font-size: 2.2rem; margin-bottom: 1rem; }
-    .stButton>button { background-color: #3b4252 !important; color: #ffffff !important; border: 1px solid #88c0d0 !important; width: 100%; border-radius: 8px; font-weight: 700; }
+    .stButton>button { background-color: #3b4252 !important; color: #ffffff !important; border: 1px solid #88c0d0 !important; width: 100%; border-radius: 8px; font-weight: 700; height: 45px; }
     .input-card { background-color: #2e3440; padding: 20px; border-radius: 12px; border: 1px solid #4c566a; margin-bottom: 20px; }
-    .suggestion-card { background-color: #3b4252; padding: 15px; border-radius: 10px; border-left: 5px solid #88c0d0; margin-bottom: 10px; }
-    [data-testid="stWidgetLabel"] p { color: #88c0d0 !important; font-weight: 600; }
+    .suggestion-card { background-color: #3b4252; padding: 25px; border-radius: 15px; border-left: 8px solid #88c0d0; margin-bottom: 20px; box-shadow: 4px 4px 15px rgba(0,0,0,0.5); }
+    [data-testid="stWidgetLabel"] p { color: #88c0d0 !important; font-weight: 600; font-size: 1.1rem; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -48,36 +48,32 @@ if not st.session_state.authenticated:
             st.session_state.authenticated = True; st.rerun()
     st.stop()
 
-# --- 5. 主介面 ---
 st.markdown('<h1 class="main-header">🏫 「學思戰情」智慧學習資源系統</h1>', unsafe_allow_html=True)
 ai_engine, hub_sheet = init_services()
 
 tab_entry, tab_view, tab_analysis = st.tabs(["📝 數據錄入", "🔍 歷史數據", "📊 戰情分析室"])
 
-# --- Tab 1: 數據錄入 (家教角色強化) ---
+# --- Tab 1: 數據錄入 ---
 with tab_entry:
     with st.container():
         st.markdown('<div class="input-card">', unsafe_allow_html=True)
-        c1, c2, c3 = st.columns([1, 1, 1])
-        with c1: stu_id = st.text_input("📍 學生代號", placeholder="例：809-01")
-        with c2: subject = st.selectbox("📚 學科", ["國文", "英文", "數學", "理化", "歷史", "地理", "公民"])
-        with c3: exam_range = st.text_input("🎯 考試範圍", placeholder="例：L1-L3")
-        
-        c4, c5 = st.columns([1, 2])
-        with c4: score = st.number_input("💯 分數", 0, 100, 60)
-        with c5: obs = st.text_area("🔍 觀察摘要", placeholder="輸入觀察內容...", height=68)
+        stu_id = st.text_input("📍 學生代號", placeholder="例：809-01")
+        subject = st.selectbox("📚 學科", ["國文", "英文", "數學", "理化", "歷史", "地理", "公民"])
+        exam_range = st.text_input("🎯 考試範圍", placeholder="例：L1-L3")
+        score = st.number_input("💯 分數", 0, 100, 60)
+        obs = st.text_area("🔍 觀察摘要", placeholder="輸入觀察內容...", height=100)
         
         if st.button("🚀 啟動 AI 家教診斷並存檔"):
             if stu_id and obs and exam_range:
-                with st.spinner("AI 家教分析中..."):
-                    prompt = f"你是一位精通國中課程的「專業私人家教」。請針對學生{stu_id}在{subject}(範圍:{exam_range})拿{score}分及觀察『{obs}』提供150字內知識點診斷與補強建議。"
+                with st.spinner("AI 各科家教分析中..."):
+                    prompt = f"你是一位精通國中課程的專業私人家教。請針對學生{stu_id}在{subject}(範圍:{exam_range})拿{score}分及觀察『{obs}』提供150字內診斷與建議。"
                     try:
                         diagnosis = ai_engine.generate_content(prompt).text
                         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
                         hub_sheet.append_row([timestamp, stu_id, subject, exam_range, score, obs, diagnosis])
-                        st.success("✅ 數據已存入 HUB！")
-                        st.info(f"**AI 家教建議：**\n\n{diagnosis}")
-                    except Exception as e: st.error(f"連線異常: {e}")
+                        st.success("✅ 數據已成功同步！")
+                        st.info(f"**AI 家教診斷：**\n\n{diagnosis}")
+                    except Exception as e: st.error(f"存檔失敗：{e}")
             else: st.warning("請填寫完整資訊。")
         st.markdown('</div>', unsafe_allow_html=True)
 
@@ -86,11 +82,9 @@ with tab_view:
     if hub_sheet:
         if st.button("🔄 刷新數據"): st.rerun()
         df = pd.DataFrame(hub_sheet.get_all_records())
-        if not df.empty:
-            st.dataframe(df.sort_values(by="日期時間", ascending=False), use_container_width=True)
-        else: st.info("尚無數據。")
+        st.dataframe(df.sort_values(by="日期時間", ascending=False), use_container_width=True)
 
-# --- Tab 3: 戰情分析室 (改為上下呈現) ---
+# --- Tab 3: 戰情分析室 (完全垂直排版) ---
 with tab_analysis:
     if hub_sheet:
         raw_data = hub_sheet.get_all_records()
@@ -98,8 +92,8 @@ with tab_analysis:
             df = pd.DataFrame(raw_data)
             df['小考成績'] = pd.to_numeric(df['小考成績'], errors='coerce').fillna(0)
             
-            # 1. 全班雷達圖 (上方)
-            st.subheader("🕸️ 全班學習力雷達圖 (各科平均表現)")
+            # 1. 全班雷達圖 (最上方)
+            st.subheader("🕸️ 全班學習力平均分布")
             avg_scores = df.groupby('學科類別')['小考成績'].mean().reset_index()
             fig_radar = px.line_polar(avg_scores, r='小考成績', theta='學科類別', line_close=True, range_r=[0,100])
             fig_radar.update_traces(fill='toself', line_color='#88c0d0')
@@ -108,30 +102,38 @@ with tab_analysis:
             
             st.divider()
 
-            # 2. 個人分析區 (下方)
-            st.subheader("👤 個人戰情分析與建議")
+            # 2. 個人進步趨勢 (中間)
+            st.subheader("👤 個人學習趨勢追蹤")
             stu_list = df['學生代號'].unique()
-            sel_stu = st.selectbox("請選擇學生代號：", stu_list)
+            sel_stu = st.selectbox("切換要查看的學生代號：", stu_list)
             
-            # A. 個人進步趨勢圖
             stu_df = df[df['學生代號'] == sel_stu].sort_values('日期時間')
             fig_line = px.line(stu_df, x='日期時間', y='小考成績', color='學科類別', markers=True, hover_data=['考試範圍'])
             fig_line.update_layout(template="plotly_dark", yaxis_range=[0,105])
             st.plotly_chart(fig_line, use_container_width=True)
             
-            # B. 個人各科目學習建議單 (核心新功能)
-            st.markdown(f"#### 📝 學生 {sel_stu} 的各科家教建議清單")
-            # 抓取該學生在各個學科最後一筆診斷紀錄
+            st.divider()
+
+            # 3. 個人各科目學習建議單 (最下方)
+            st.subheader(f"📝 學生 {sel_stu} 各學科個人化建議清單")
+            
+            # 確保欄位名稱完全匹配
             latest_diag = stu_df.groupby('學科類別').tail(1)
             
-            for _, row in latest_diag.iterrows():
-                with st.container():
+            if not latest_diag.empty:
+                for index, row in latest_diag.iterrows():
+                    # 這裡使用 HTML 語法強制生成美觀的卡片
                     st.markdown(f"""
                     <div class="suggestion-card">
-                        <h4 style='color:#88c0d0; margin:0;'>📚 {row['學科類別']} (範圍：{row['考試範圍']})</h4>
-                        <p style='font-size:0.9rem; color:#aeb3bb; margin:5px 0;'>最後測驗分數：{row['小考成績']}分</p>
-                        <p style='margin-top:10px;'><b>家教深度建議：</b><br>{row['AI診斷與建議']}</p>
+                        <h3 style='color:#88c0d0; margin-bottom:5px;'>📚 {row['學科類別']}</h3>
+                        <p style='margin:0; color:#aeb3bb;'>測驗範圍：{row['考試範圍']} | 最新成績：{row['小考成績']} 分</p>
+                        <hr style='border: 0.5px solid #4c566a; margin: 15px 0;'>
+                        <div style='font-size:1.1rem; line-height:1.6; color:#e5e9f0;'>
+                            {row['AI診斷與建議']}
+                        </div>
                     </div>
                     """, unsafe_allow_html=True)
+            else:
+                st.info("尚無該生的各科建議數據。")
         else:
-            st.info("💡 目前 HUB 尚無數據。")
+            st.info("💡 HUB 內尚無數據。")
