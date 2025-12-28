@@ -8,6 +8,7 @@ import plotly.express as px
 from PIL import Image
 from fpdf import FPDF
 import os
+import re
 
 # --- 1. 核心參數設定 ---
 AUTH_CODE = "641101"  
@@ -28,7 +29,6 @@ st.markdown("""
         border: 1px solid #88c0d0 !important; width: 100%; border-radius: 10px; font-weight: 700; height: 45px;
     }
     .input-card { background-color: #2e3440; padding: 25px; border-radius: 15px; border: 1px solid #4c566a; margin-bottom: 20px; }
-    .tactical-advice { background-color: #3e4451; padding: 25px; border-radius: 15px; border: 2px dashed #ebcb8b; color: #ebcb8b; margin-top: 20px; line-height: 1.8; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -43,7 +43,7 @@ def init_services():
         sheet = gspread.authorize(creds).open(HUB_NAME).worksheet(SHEET_TAB)
         return model, sheet
     except Exception as e:
-        st.error(f"系統異常：{e}"); return None, None
+        st.error(f"系統初始化異常：{e}"); return None, None
 
 # --- 4. 驗證機制 ---
 if 'authenticated' not in st.session_state: st.session_state.authenticated = False
@@ -55,58 +55,71 @@ if not st.session_state.authenticated:
             st.session_state.authenticated = True; st.rerun()
     st.stop()
 
-# --- 5. 工具函式：PDF 格式優化 ---
+# --- 5. 工具函式：清除 Markdown 雜訊 ---
+def clean_text(text):
+    # 移除 Markdown 表格符號 (| 和 -)
+    text = re.sub(r'\|', '', text)
+    text = re.sub(r'^-+$', '', text, flags=re.MULTILINE)
+    text = re.sub(r'\*\*', '', text) # 移除粗體符號
+    return text.strip()
+
+# --- 6. 工具函式：排版優化的 PDF 生成 ---
 def generate_pdf_report(stu_id, subject, exam_range, tags, obs, diag):
     pdf = FPDF()
-    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.set_auto_page_break(auto=True, margin=20)
     pdf.add_page()
     
     font_path = "font.ttf"
-    # 設定標題 (大字體)
     if os.path.exists(font_path):
         pdf.add_font('CustomFont', '', font_path)
-        pdf.set_font('CustomFont', size=20)
-    else: pdf.set_font('Arial', 'B', 18)
-    
-    pdf.cell(0, 15, txt=f"學習診斷個人報告：{stu_id}", ln=True, align='C')
+        pdf.set_font('CustomFont', size=22)
+    else: pdf.set_font('Arial', 'B', 20)
+
+    # 1. 標題 (置中加大)
+    pdf.set_text_color(26, 28, 35)
+    pdf.cell(0, 20, txt=f"學 生 學 習 診 斷 報 告", ln=True, align='C')
     pdf.ln(5)
 
-    # 設定基本資訊 (中字體)
-    if os.path.exists(font_path): pdf.set_font('CustomFont', size=13)
-    pdf.set_text_color(50, 50, 50)
-    pdf.cell(0, 10, txt=f"科目：{subject}  |  考試範圍：{exam_range}", ln=True)
-    pdf.cell(0, 10, txt=f"核心行為標籤：{tags}", ln=True)
-    pdf.ln(5)
-    
-    # 畫一條橫線
+    # 2. 基本資訊區塊
+    if os.path.exists(font_path): pdf.set_font('CustomFont', size=14)
+    pdf.set_fill_color(240, 240, 240) # 淺灰背景
+    pdf.cell(0, 12, txt=f" 學生代號：{stu_id}  |  科目：{subject}  |  範圍：{exam_range}", ln=True, fill=True)
+    pdf.cell(0, 12, txt=f" 核心行為標籤：{tags}", ln=True, fill=True)
+    pdf.ln(10)
+
+    # 3. 錯題事實紀錄 (左對齊，條列式)
+    pdf.set_font('CustomFont', size=16)
+    pdf.set_text_color(136, 192, 208) # 藍色標題
+    pdf.cell(0, 10, txt="■ 錯誤事實與描述紀錄", ln=True)
     pdf.set_draw_color(136, 192, 208)
-    pdf.line(10, pdf.get_y(), 200, pdf.get_y())
-    pdf.ln(5)
-
-    # 設定內容 (標準字體 12pt, 增加行距)
-    if os.path.exists(font_path): pdf.set_font('CustomFont', size=12)
+    pdf.line(10, pdf.get_y(), 200, pdf.get_y()) # 裝飾線
+    pdf.ln(4)
+    
+    pdf.set_font('CustomFont', size=12)
     pdf.set_text_color(0, 0, 0)
+    pdf.multi_cell(0, 10, txt=clean_text(obs))
+    pdf.ln(10)
+
+    # 4. 指導建議區塊
+    pdf.set_font('CustomFont', size=16)
+    pdf.set_text_color(136, 192, 208)
+    pdf.cell(0, 10, txt="■ 專業補強指導建議", ln=True)
+    pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+    pdf.ln(4)
     
-    pdf.set_font('CustomFont', size=14)
-    pdf.cell(0, 12, txt="【 錯題事實與描述 】", ln=True)
-    if os.path.exists(font_path): pdf.set_font('CustomFont', size=12)
-    pdf.multi_cell(0, 10, txt=obs) # 行高設為 10
-    
-    pdf.ln(8)
-    pdf.set_font('CustomFont', size=14)
-    pdf.cell(0, 12, txt="【 專業補強指導建議 】", ln=True)
-    if os.path.exists(font_path): pdf.set_font('CustomFont', size=12)
-    pdf.multi_cell(0, 10, txt=diag) # 行高設為 10
+    pdf.set_font('CustomFont', size=12)
+    pdf.set_text_color(0, 0, 0)
+    pdf.multi_cell(0, 10, txt=clean_text(diag))
     
     return bytes(pdf.output())
 
-# --- 6. 主程式 ---
+# --- 7. 主程式 ---
 st.markdown('<h1 class="main-header">🏫 「學思戰情」深度段考診斷系統</h1>', unsafe_allow_html=True)
 ai_engine, hub_sheet = init_services()
 
 tab_entry, tab_view, tab_analysis = st.tabs(["📝 影像/PDF 深度診讀", "🔍 歷史數據庫", "📊 戰術分析室"])
 
-# --- Tab 1: 診斷錄入 ---
+# --- Tab 1: 診斷錄入 (優化 AI Prompt) ---
 with tab_entry:
     with st.container():
         st.markdown('<div class="input-card">', unsafe_allow_html=True)
@@ -116,48 +129,45 @@ with tab_entry:
         
         exam_range = st.text_input("🎯 段考範圍")
         score = st.number_input("💯 測驗成績", 0, 100, 60)
-        uploaded_files = st.file_uploader("📷 上傳考卷", type=["jpg", "jpeg", "png", "pdf"], accept_multiple_files=True)
+        uploaded_files = st.file_uploader("📷 上傳檔案", type=["jpg", "jpeg", "png", "pdf"], accept_multiple_files=True)
         
         if "v_obs" not in st.session_state: st.session_state.v_obs = ""
         if "v_diag" not in st.session_state: st.session_state.v_diag = ""
         
         if uploaded_files and st.button("🔍 執行事實診讀"):
-            with st.spinner("正在生成整齊的診斷報告..."):
+            with st.spinner("AI 正在優化排版中..."):
                 input_data = []
                 for f in uploaded_files:
                     if f.type == "application/pdf": input_data.append({"mime_type": "application/pdf", "data": f.read()})
                     else: input_data.append(Image.open(f))
                 
-                # 修改 Prompt：嚴禁表格，改用整齊列表
-                prompt = """你是一位專業的教育診斷官。請分析檔案，並產出以下內容：
-                1. 【事實紀錄】：請使用「題號. 知識點：錯誤原因」的整齊條列格式。禁止使用 Markdown 表格 (| 或 - 符號)。
-                2. 【行為標籤】：提取 1-3 個標籤如 #閱讀不周。
-                3. 【補強建議】：針對該生漏洞提供具體做法。
-                要求：去除所有開場白（如「好的，這是...」），直接進入主題。字跡清晰，去美化，嚴禁頁碼。"""
+                # 嚴格約束 AI 不准使用表格
+                prompt = """你是一位專業教育診斷官。分析檔案並產出：
+                1. 【事實紀錄】：請使用條列式（例如：● 題號. 內容...）。禁止使用任何表格 | 或 --- 符號。
+                2. 【行為標籤】：列出標籤如 #閱讀不周。
+                3. 【補強建議】：提供具體的學習指引。
+                格式要求：文字簡潔，層次分明，絕對禁止使用表格形式。"""
                 
                 v_res = ai_engine.generate_content([prompt] + input_data).text
-                
                 if "【補強建議】" in v_res:
                     st.session_state.v_obs, st.session_state.v_diag = v_res.split("【補強建議】")
                 else:
-                    st.session_state.v_obs = v_res
-                    st.session_state.v_diag = "請補充專業指導..."
+                    st.session_state.v_obs = v_res; st.session_state.v_diag = "請補充建議內容..."
         
-        edited_obs = st.text_area("🔍 錯誤事實 (建議檢查是否有多餘符號)", value=st.session_state.v_obs, height=350)
-        edited_diag = st.text_area("💡 補強指導建議", value=st.session_state.v_diag, height=200)
+        edited_obs = st.text_area("🔍 錯誤事實 (已自動清除表格符號)", value=clean_text(st.session_state.v_obs), height=350)
+        edited_diag = st.text_area("💡 補強建議", value=clean_text(st.session_state.v_diag), height=200)
 
         if st.button("🚀 同步至戰術庫"):
             if stu_id and edited_obs:
-                with st.spinner("歸檔中..."):
-                    tag_res = ai_engine.generate_content(f"從以下文字提取標籤內容：{edited_obs}").text
+                with st.spinner("同步中..."):
+                    tag_res = ai_engine.generate_content(f"從此內容提取標籤：{edited_obs}").text
                     hub_sheet.append_row([datetime.now().strftime("%Y-%m-%d %H:%M"), stu_id, subject, exam_range, score, edited_obs, edited_diag, tag_res])
-                    st.success("✅ 數據已更新！請前往「戰術分析室」下載排版優化後的 PDF。")
+                    st.success("✅ 數據已校正同步！")
         st.markdown('</div>', unsafe_allow_html=True)
 
-# --- Tab 2 & 3 維持原有邏輯，但調用優化後的 PDF 函式 ---
+# --- Tab 2 & 3 維持原有分析邏輯，但使用新排版 PDF ---
 with tab_view:
     if hub_sheet:
-        if st.button("🔄 刷新數據"): st.rerun()
         raw_df = pd.DataFrame(hub_sheet.get_all_records())
         if not raw_df.empty: st.dataframe(raw_df.sort_values(by="日期時間", ascending=False), use_container_width=True)
 
@@ -167,16 +177,15 @@ with tab_analysis:
         if raw_data:
             df = pd.DataFrame(raw_data)
             stu_list = df['學生代號'].unique()
-            sel_stu = st.selectbox("🎯 選擇學生代號", stu_list)
+            sel_stu = st.selectbox("🎯 選擇學生", stu_list)
             stu_df = df[df['學生代號'] == sel_stu].sort_values('日期時間', ascending=False)
             if not stu_df.empty:
-                # 繪圖... (省略重複繪圖代碼)
+                # 此處省略雷達圖代碼以保持簡潔
                 st.divider()
-                sub_list_hist = sorted(list(stu_df['學科類別'].unique()))
-                sel_sub_hist = st.selectbox("🔍 科目明細：", sub_list_hist)
-                target_records = stu_df[stu_df['學科類別'] == sel_sub_hist]
-                
-                for _, row in target_records.iterrows():
+                sub_list = sorted(list(stu_df['學科類別'].unique()))
+                sel_sub = st.selectbox("🔍 科目明細：", sub_list)
+                recs = stu_df[stu_df['學科類別'] == sel_sub]
+                for _, row in recs.iterrows():
                     with st.expander(f"🎯 {row['考試範圍']} - {row['測驗成績']}分"):
-                        pdf_bytes = generate_pdf_report(sel_stu, sel_sub_hist, row['考試範圍'], row['錯誤屬性標籤'], row['導師觀察摘要'], row['AI診斷與建議'])
-                        st.download_button(label="📥 下載優化版中文報告 (PDF)", data=pdf_bytes, file_name=f"Report_{sel_stu}.pdf", mime="application/pdf", key=f"dl_{row['日期時間']}")
+                        pdf_bytes = generate_pdf_report(sel_stu, sel_sub, row['考試範圍'], row['錯誤屬性標籤'], row['導師觀察摘要'], row['AI診斷與建議'])
+                        st.download_button(label="📥 下載排版優化版報告 (PDF)", data=pdf_bytes, file_name=f"Report_{sel_stu}.pdf", mime="application/pdf", key=f"dl_{row['日期時間']}")
