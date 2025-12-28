@@ -12,9 +12,9 @@ HUB_NAME = "Student_Learning_Hub"
 SHEET_TAB = "Learning_Data" 
 MODEL_NAME = "models/gemini-2.0-flash" 
 
-st.set_page_config(page_title="學思戰情系統 v1.3", layout="wide", page_icon="📊")
+st.set_page_config(page_title="學思戰情系統", layout="wide", page_icon="📈")
 
-# --- 2. 視覺風格 ---
+# --- 2. 視覺風格 (維持既有深色專業風) ---
 st.markdown("""
     <style>
     .stApp { background-color: #1a1c23; color: #e5e9f0; }
@@ -42,57 +42,55 @@ if 'authenticated' not in st.session_state: st.session_state.authenticated = Fal
 if not st.session_state.authenticated:
     _, col_m, _ = st.columns([1, 1.2, 1])
     with col_m:
-        st.markdown("<div style='text-align:center; margin-top:100px;'><h2>📈 導師戰情系統登入</h2></div>", unsafe_allow_html=True)
-        pwd = st.text_input("輸入授權碼：", type="password")
-        if st.button("啟動系統"):
-            if pwd == AUTH_CODE:
-                st.session_state.authenticated = True; st.rerun()
+        st.markdown("<h2 style='text-align:center; color:#88c0d0;'>導師戰情系統登入</h2>", unsafe_allow_html=True)
+        if st.text_input("授權碼：", type="password") == AUTH_CODE:
+            st.session_state.authenticated = True; st.rerun()
     st.stop()
 
-# --- 5. 主介面 ---
+# --- 5. 主程式 ---
 st.markdown('<h1 class="main-header">🏫 「學思戰情」智慧學習資源系統</h1>', unsafe_allow_html=True)
 ai_engine, hub_sheet = init_services()
 
 tab_entry, tab_view, tab_analysis = st.tabs(["📝 數據錄入", "🔍 歷史數據", "📊 戰情分析室"])
 
-# --- Tab 1: 數據錄入 (新增考試範圍) ---
+# --- Tab 1: 數據錄入 (家教角色強化版) ---
 with tab_entry:
     with st.container():
         st.markdown('<div class="input-card">', unsafe_allow_html=True)
-        c1, c2 = st.columns(2)
+        c1, c2, c3 = st.columns([1, 1, 1])
         with c1: stu_id = st.text_input("📍 學生代號", placeholder="例：809-01")
         with c2: subject = st.selectbox("📚 學科", ["國文", "英文", "數學", "理化", "歷史", "地理", "公民"])
+        with c3: exam_range = st.text_input("🎯 考試範圍", placeholder="例：L1-L3")
         
-        c3, c4 = st.columns(2)
-        with c3: exam_range = st.text_input("🎯 考試範圍", placeholder="例：L1-L3 或 第一次月考")
+        c4, c5 = st.columns([1, 2])
         with c4: score = st.number_input("💯 分數", 0, 100, 60)
+        with c5: obs = st.text_area("🔍 觀察摘要", placeholder="輸入觀察內容...", height=68)
         
-        obs = st.text_area("🔍 觀察摘要", placeholder="輸入觀察內容...", height=100)
-        
-        if st.button("🚀 啟動 AI 診斷並同步至 HUB"):
+        if st.button("🚀 啟動 AI 家教診斷並存檔"):
             if stu_id and obs and exam_range:
-                with st.spinner("AI 分析數據中..."):
-                    # 強化 AI 指令：加入考試範圍
-                    prompt = f"""你是一位專業導師。請根據數據提供100字內診斷與策略：
-                    學生：{stu_id} | 學科：{subject} | 範圍：{exam_range} | 分數：{score}
-                    觀察：{obs}
-                    請針對此考試範圍的表現給予具體建議。"""
-                    
+                with st.spinner("AI 家教分析中..."):
+                    # 角色定義：各科深度輔導家教
+                    prompt = f"""
+                    你是一位精通國中課程的「專業私人家教」。請針對以下數據提供深度診斷（150字內）：
+                    學生代號：{stu_id} | 學科：{subject} | 範圍：{exam_range} | 分數：{score}
+                    觀察摘要：{obs}
+                    請包含：1. 知識點掌握度診斷 2. 具體學習補強建議。
+                    """
                     try:
                         diagnosis = ai_engine.generate_content(prompt).text
                         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
-                        # 依照試算表新順序存入
+                        # 存入 HUB (欄位順序：日期, 代號, 學科, 範圍, 分數, 觀察, 診斷)
                         hub_sheet.append_row([timestamp, stu_id, subject, exam_range, score, obs, diagnosis])
-                        st.success("✅ 數據已成功存入 HUB！")
-                        st.info(f"**AI 建議：**\n\n{diagnosis}")
+                        st.success("✅ 數據已存入 HUB！")
+                        st.info(f"**AI 家教建議：**\n\n{diagnosis}")
                     except Exception as e: st.error(f"連線異常: {e}")
-            else: st.warning("請完整填寫代號、範圍與觀察。")
+            else: st.warning("請填寫完整資訊。")
         st.markdown('</div>', unsafe_allow_html=True)
 
 # --- Tab 2: 歷史數據 ---
 with tab_view:
     if hub_sheet:
-        if st.button("🔄 刷新 HUB"): st.rerun()
+        if st.button("🔄 刷新數據"): st.rerun()
         df = pd.DataFrame(hub_sheet.get_all_records())
         if not df.empty:
             st.dataframe(df.sort_values(by="日期時間", ascending=False), use_container_width=True)
@@ -108,7 +106,7 @@ with tab_analysis:
             c_radar, c_trend = st.columns(2)
             
             with c_radar:
-                st.subheader("🕸️ 全班學習力雷達")
+                st.subheader("🕸️ 全班學習力雷達圖")
                 avg_scores = df.groupby('學科類別')['小考成績'].mean().reset_index()
                 fig_radar = px.line_polar(avg_scores, r='小考成績', theta='學科類別', line_close=True, range_r=[0,100])
                 fig_radar.update_traces(fill='toself', line_color='#88c0d0')
@@ -116,12 +114,10 @@ with tab_analysis:
                 st.plotly_chart(fig_radar, use_container_width=True)
             
             with c_trend:
-                st.subheader("📈 個人進步趨勢")
+                st.subheader("📈 個人進步趨勢圖")
                 stu_list = df['學生代號'].unique()
                 sel_stu = st.selectbox("選擇學生：", stu_list)
                 stu_df = df[df['學生代號'] == sel_stu].sort_values('日期時間')
-                # 趨勢圖加入 hover 顯示考試範圍
-                fig_line = px.line(stu_df, x='日期時間', y='小考成績', color='學科類別', markers=True, 
-                                   hover_data=['考試範圍'])
+                fig_line = px.line(stu_df, x='日期時間', y='小考成績', color='學科類別', markers=True, hover_data=['考試範圍'])
                 fig_line.update_layout(template="plotly_dark", yaxis_range=[0,105])
                 st.plotly_chart(fig_line, use_container_width=True)
