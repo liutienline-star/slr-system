@@ -10,7 +10,7 @@ from fpdf import FPDF
 import os
 import re
 
-# --- 1. 核心參數設定 ---
+# --- 1. 核心參數設定 (嚴格維持原狀) ---
 AUTH_CODE = "641101"  
 HUB_NAME = "Student_Learning_Hub" 
 SHEET_TAB = "Learning_Data" 
@@ -43,7 +43,7 @@ def init_services():
         sheet = gspread.authorize(creds).open(HUB_NAME).worksheet(SHEET_TAB)
         return model, sheet
     except Exception as e:
-        st.error(f"系統初始化異常：{e}"); return None, None
+        st.error(f"系統異常：{e}"); return None, None
 
 # --- 4. 驗證機制 ---
 if 'authenticated' not in st.session_state: st.session_state.authenticated = False
@@ -55,17 +55,18 @@ if not st.session_state.authenticated:
             st.session_state.authenticated = True; st.rerun()
     st.stop()
 
-# --- 5. 工具函式：文本清洗 ---
 def clean_text(text):
     text = re.sub(r'\|', '', text)
     text = re.sub(r'^-+$', '', text, flags=re.MULTILINE)
     text = re.sub(r'\*\*', '', text)
     return text.strip()
 
-# --- 6. 工具函式：PDF 生成 (強化題目顯示與間距) ---
+# --- 5. PDF 生成 (縮小邊距優化版) ---
 def generate_pdf_report(stu_id, subject, exam_range, tags, obs, diag):
     pdf = FPDF()
-    pdf.set_auto_page_break(auto=True, margin=20)
+    # 修正：邊界縮小至 10mm 以適應手機螢幕，避免斷字
+    pdf.set_margins(left=10, top=10, right=10)
+    pdf.set_auto_page_break(auto=True, margin=10)
     pdf.add_page()
     
     font_path = "font.ttf"
@@ -76,35 +77,36 @@ def generate_pdf_report(stu_id, subject, exam_range, tags, obs, diag):
 
     # 標題
     pdf.set_text_color(26, 28, 35)
-    pdf.cell(0, 20, txt=f"學 生 學 習 診 斷 報 告", ln=True, align='C')
-    pdf.ln(5)
+    pdf.cell(0, 15, txt=f"學 生 學 習 診 斷 報 告", ln=True, align='C')
+    pdf.ln(2)
 
-    # 基本資訊區
-    if os.path.exists(font_path): pdf.set_font('CustomFont', size=13)
+    # 資訊區塊 (自適應寬度)
+    if os.path.exists(font_path): pdf.set_font('CustomFont', size=12)
     pdf.set_fill_color(245, 245, 245)
-    pdf.cell(0, 12, txt=f" 學生代號：{stu_id}  |  科目：{subject}  |  範圍：{exam_range}", ln=True, fill=True)
-    pdf.cell(0, 12, txt=f" 核心行為標籤：{tags}", ln=True, fill=True)
-    pdf.ln(10)
+    info_text = f" 學生代號：{stu_id}  |  科目：{subject}  |  範圍：{exam_range}"
+    pdf.cell(0, 10, txt=info_text, ln=True, fill=True)
+    pdf.cell(0, 10, txt=f" 核心行為標籤：{tags}", ln=True, fill=True)
+    pdf.ln(8)
 
-    # 錯題事實紀錄 (含題目摘錄)
+    # 分析內容 (增加行距為 10，字體 12pt)
     pdf.set_font('CustomFont', size=16)
     pdf.set_text_color(136, 192, 208)
     pdf.cell(0, 10, txt="■ 錯題深度分析程序", ln=True)
     pdf.set_draw_color(136, 192, 208)
-    pdf.line(10, pdf.get_y(), 200, pdf.get_y())
-    pdf.ln(5)
+    pdf.line(10, pdf.get_y(), 200, pdf.get_y()) # 寬度配合邊界
+    pdf.ln(4)
     
-    pdf.set_font('CustomFont', size=12) # 內文採用 12pt 確保長度適中
+    pdf.set_font('CustomFont', size=12)
     pdf.set_text_color(0, 0, 0)
     pdf.multi_cell(0, 10, txt=clean_text(obs))
-    pdf.ln(10)
+    pdf.ln(8)
 
     # 指導建議
     pdf.set_font('CustomFont', size=16)
     pdf.set_text_color(136, 192, 208)
     pdf.cell(0, 10, txt="■ 專業補強指導建議", ln=True)
     pdf.line(10, pdf.get_y(), 200, pdf.get_y())
-    pdf.ln(5)
+    pdf.ln(4)
     
     pdf.set_font('CustomFont', size=12)
     pdf.set_text_color(0, 0, 0)
@@ -112,13 +114,12 @@ def generate_pdf_report(stu_id, subject, exam_range, tags, obs, diag):
     
     return bytes(pdf.output())
 
-# --- 7. 主程式 ---
+# --- 6. 主程式 (Tab 1) ---
 st.markdown('<h1 class="main-header">🏫 「學思戰情」深度段考診斷系統</h1>', unsafe_allow_html=True)
 ai_engine, hub_sheet = init_services()
 
 tab_entry, tab_view, tab_analysis = st.tabs(["📝 影像/PDF 深度診讀", "🔍 歷史數據庫", "📊 戰術分析室"])
 
-# --- Tab 1: 診斷錄入 (更新為包含題目摘錄的 Prompt) ---
 with tab_entry:
     with st.container():
         st.markdown('<div class="input-card">', unsafe_allow_html=True)
@@ -134,50 +135,42 @@ with tab_entry:
         if "v_diag" not in st.session_state: st.session_state.v_diag = ""
         
         if uploaded_files and st.button("🔍 執行事實診讀"):
-            with st.spinner("AI 正在深度解析題目與錯誤原因..."):
+            with st.spinner("AI 正在解析並排版..."):
                 input_data = []
                 for f in uploaded_files:
                     if f.type == "application/pdf": input_data.append({"mime_type": "application/pdf", "data": f.read()})
                     else: input_data.append(Image.open(f))
                 
-                # 調整後的 Prompt：要求摘錄題目文字
-                prompt = """你是一位專業教育診斷官。請詳細分析檔案內容，產出以下兩部分：
-                
+                # 維持五段式 Prompt 邏輯
+                prompt = """你是一位專業教育診斷官。分析檔案並產出：
                 第一部分【事實紀錄】：
-                請針對每一道錯題，嚴格按照此格式排列，不要漏掉題目文字：
-                1. 題號與題目：(題號。並完整摘錄題目文字)
-                2. 學生答案：(學生所選答案)
-                3. 正確答案：(正式正確答案)
-                4. 解析：(詳細描述該題知識點、學生錯誤的具體原因，需具備診斷價值)
+                每一道錯題嚴格按格式：
+                1. 題號與題目：(摘錄題目)
+                2. 學生答案：(答案)
+                3. 正確答案：(答案)
+                4. 解析：(詳細描述錯誤事實)
                 
-                第二部分【補強建議】：
-                針對上述錯誤，提供導師或學生的補強策略與行動建議。
-                
-                要求：
-                - 禁止使用表格符號。
-                - 每一題之間請空一行。
-                - 解析內容需針對錯題事實，禁止泛泛而談。
-                - 嚴禁開場白，直接輸出內容。"""
+                第二部分【補強建議】：(條列式建議)
+                禁止表格與雜訊符號。"""
                 
                 v_res = ai_engine.generate_content([prompt] + input_data).text
                 if "第二部分" in v_res:
                     st.session_state.v_obs, st.session_state.v_diag = v_res.split("第二部分")
                 else:
-                    st.session_state.v_obs = v_res
-                    st.session_state.v_diag = "請在此輸入專業補強指導..."
+                    st.session_state.v_obs = v_res; st.session_state.v_diag = "請手動輸入指導..."
         
-        edited_obs = st.text_area("🔍 錯題分析程序 (含題目摘錄)", value=clean_text(st.session_state.v_obs), height=450)
-        edited_diag = st.text_area("💡 補強建議", value=clean_text(st.session_state.v_diag), height=250)
+        edited_obs = st.text_area("🔍 診斷內容 (五段式)", value=clean_text(st.session_state.v_obs), height=400)
+        edited_diag = st.text_area("💡 補強建議", value=clean_text(st.session_state.v_diag), height=200)
 
         if st.button("🚀 同步至戰術庫"):
             if stu_id and edited_obs:
-                with st.spinner("專業數據同步中..."):
-                    tag_res = ai_engine.generate_content(f"從以下內容提取行為標籤（如 #閱讀不周）：{edited_obs}").text
+                with st.spinner("同步中..."):
+                    tag_res = ai_engine.generate_content(f"提取標籤：{edited_obs}").text
                     hub_sheet.append_row([datetime.now().strftime("%Y-%m-%d %H:%M"), stu_id, subject, exam_range, score, edited_obs, edited_diag, tag_res])
-                    st.success("✅ 數據已成功同步至校務戰情庫！")
+                    st.success("✅ 數據已校準存檔。")
         st.markdown('</div>', unsafe_allow_html=True)
 
-# --- Tab 2 & 3 維持既有高效能分析功能 ---
+# --- Tab 2 & 3 (邏輯完全不變) ---
 with tab_view:
     if hub_sheet:
         raw_df = pd.DataFrame(hub_sheet.get_all_records())
@@ -188,16 +181,15 @@ with tab_analysis:
         raw_data = hub_sheet.get_all_records()
         if raw_data:
             df = pd.DataFrame(raw_data)
-            stu_list = df['學生代號'].unique()
-            sel_stu = st.selectbox("🎯 選擇學生", stu_list)
+            sel_stu = st.selectbox("🎯 選擇學生", df['學生代號'].unique())
             stu_df = df[df['學生代號'] == sel_stu].sort_values('日期時間', ascending=False)
             if not stu_df.empty:
-                # 保留雷達圖與標籤統計圖邏輯...
                 st.divider()
                 sub_list = sorted(list(stu_df['學科類別'].unique()))
                 sel_sub = st.selectbox("🔍 科目明細：", sub_list)
                 recs = stu_df[stu_df['學科類別'] == sel_sub]
                 for _, row in recs.iterrows():
                     with st.expander(f"🎯 {row['考試範圍']} - {row['測驗成績']}分"):
+                        # 呼叫新版 PDF 生成函式
                         pdf_bytes = generate_pdf_report(sel_stu, sel_sub, row['考試範圍'], row['錯誤屬性標籤'], row['導師觀察摘要'], row['AI診斷與建議'])
-                        st.download_button(label="📥 下載五段式深度報告 (PDF)", data=pdf_bytes, file_name=f"Report_{sel_stu}.pdf", mime="application/pdf", key=f"dl_{row['日期時間']}")
+                        st.download_button(label="📥 下載手機優化版報告", data=pdf_bytes, file_name=f"Report_{sel_stu}.pdf", mime="application/pdf", key=f"dl_{row['日期時間']}")
