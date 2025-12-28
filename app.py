@@ -12,7 +12,7 @@ HUB_NAME = "Student_Learning_Hub"
 SHEET_TAB = "Learning_Data" 
 MODEL_NAME = "models/gemini-2.0-flash" 
 
-st.set_page_config(page_title="學思戰情系統 v1.2", layout="wide", page_icon="📊")
+st.set_page_config(page_title="學思戰情系統 v1.3", layout="wide", page_icon="📊")
 
 # --- 2. 視覺風格 ---
 st.markdown("""
@@ -55,28 +55,38 @@ ai_engine, hub_sheet = init_services()
 
 tab_entry, tab_view, tab_analysis = st.tabs(["📝 數據錄入", "🔍 歷史數據", "📊 戰情分析室"])
 
-# --- Tab 1: 數據錄入 ---
+# --- Tab 1: 數據錄入 (新增考試範圍) ---
 with tab_entry:
     with st.container():
         st.markdown('<div class="input-card">', unsafe_allow_html=True)
-        c1, c2, c3 = st.columns(3)
+        c1, c2 = st.columns(2)
         with c1: stu_id = st.text_input("📍 學生代號", placeholder="例：809-01")
         with c2: subject = st.selectbox("📚 學科", ["國文", "英文", "數學", "理化", "歷史", "地理", "公民"])
-        with c3: score = st.number_input("💯 分數", 0, 100, 60)
+        
+        c3, c4 = st.columns(2)
+        with c3: exam_range = st.text_input("🎯 考試範圍", placeholder="例：L1-L3 或 第一次月考")
+        with c4: score = st.number_input("💯 分數", 0, 100, 60)
+        
         obs = st.text_area("🔍 觀察摘要", placeholder="輸入觀察內容...", height=100)
         
-        if st.button("🚀 啟動 AI 診斷並存檔"):
-            if stu_id and obs:
-                with st.spinner("AI 分析並同步 HUB 中..."):
-                    prompt = f"你是一位國中導師，請針對學生{stu_id}在{subject}拿{score}分及觀察『{obs}』提供100字內診斷與策略。"
+        if st.button("🚀 啟動 AI 診斷並同步至 HUB"):
+            if stu_id and obs and exam_range:
+                with st.spinner("AI 分析數據中..."):
+                    # 強化 AI 指令：加入考試範圍
+                    prompt = f"""你是一位專業導師。請根據數據提供100字內診斷與策略：
+                    學生：{stu_id} | 學科：{subject} | 範圍：{exam_range} | 分數：{score}
+                    觀察：{obs}
+                    請針對此考試範圍的表現給予具體建議。"""
+                    
                     try:
                         diagnosis = ai_engine.generate_content(prompt).text
                         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
-                        hub_sheet.append_row([timestamp, stu_id, subject, score, obs, diagnosis])
-                        st.success("✅ 數據已存檔！")
-                        st.info(f"**AI 建議：** {diagnosis}")
+                        # 依照試算表新順序存入
+                        hub_sheet.append_row([timestamp, stu_id, subject, exam_range, score, obs, diagnosis])
+                        st.success("✅ 數據已成功存入 HUB！")
+                        st.info(f"**AI 建議：**\n\n{diagnosis}")
                     except Exception as e: st.error(f"連線異常: {e}")
-            else: st.warning("請填寫完整資訊。")
+            else: st.warning("請完整填寫代號、範圍與觀察。")
         st.markdown('</div>', unsafe_allow_html=True)
 
 # --- Tab 2: 歷史數據 ---
@@ -88,35 +98,30 @@ with tab_view:
             st.dataframe(df.sort_values(by="日期時間", ascending=False), use_container_width=True)
         else: st.info("尚無數據。")
 
-# --- Tab 3: 戰情分析室 (繪圖邏輯強化版) ---
+# --- Tab 3: 戰情分析室 ---
 with tab_analysis:
     if hub_sheet:
         raw_data = hub_sheet.get_all_records()
         if raw_data:
             df = pd.DataFrame(raw_data)
-            # 確保成績是數字格式
             df['小考成績'] = pd.to_numeric(df['小考成績'], errors='coerce').fillna(0)
-            
             c_radar, c_trend = st.columns(2)
             
             with c_radar:
-                st.subheader("🕸️ 全班學習力雷達圖")
+                st.subheader("🕸️ 全班學習力雷達")
                 avg_scores = df.groupby('學科類別')['小考成績'].mean().reset_index()
-                # 繪製雷達圖
-                fig_radar = px.line_polar(avg_scores, r='小考成績', theta='學科類別', 
-                                         line_close=True, range_r=[0,100], 
-                                         color_discrete_sequence=['#88c0d0'])
-                fig_radar.update_traces(fill='toself')
-                fig_radar.update_layout(template="plotly_dark", polar=dict(radialaxis=dict(visible=True, range=[0, 100])))
+                fig_radar = px.line_polar(avg_scores, r='小考成績', theta='學科類別', line_close=True, range_r=[0,100])
+                fig_radar.update_traces(fill='toself', line_color='#88c0d0')
+                fig_radar.update_layout(template="plotly_dark")
                 st.plotly_chart(fig_radar, use_container_width=True)
             
             with c_trend:
-                st.subheader("📈 個人進步趨勢圖")
+                st.subheader("📈 個人進步趨勢")
                 stu_list = df['學生代號'].unique()
                 sel_stu = st.selectbox("選擇學生：", stu_list)
                 stu_df = df[df['學生代號'] == sel_stu].sort_values('日期時間')
-                fig_line = px.line(stu_df, x='日期時間', y='小考成績', color='學科類別', markers=True)
+                # 趨勢圖加入 hover 顯示考試範圍
+                fig_line = px.line(stu_df, x='日期時間', y='小考成績', color='學科類別', markers=True, 
+                                   hover_data=['考試範圍'])
                 fig_line.update_layout(template="plotly_dark", yaxis_range=[0,105])
                 st.plotly_chart(fig_line, use_container_width=True)
-        else:
-            st.info("💡 HUB 目前尚無數據，請先在第一頁錄入成績，圖表將自動產生。")
