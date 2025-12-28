@@ -22,7 +22,8 @@ st.markdown("""
     .stButton>button { background-color: #3b4252 !important; color: #ffffff !important; border: 1px solid #88c0d0 !important; width: 100%; border-radius: 8px; font-weight: 700; height: 45px; }
     .input-card { background-color: #2e3440; padding: 20px; border-radius: 12px; border: 1px solid #4c566a; margin-bottom: 20px; }
     .subject-header { color: #88c0d0; border-bottom: 2px solid #88c0d0; padding-bottom: 5px; margin-top: 25px; margin-bottom: 15px; font-size: 1.5rem; font-weight: bold; }
-    .range-card { background-color: #2e3440; padding: 20px; border-radius: 12px; border-left: 5px solid #81a1c1; margin-bottom: 15px; box-shadow: 2px 2px 10px rgba(0,0,0,0.3); }
+    .range-card { background-color: #2e3440; padding: 20px; border-radius: 12px; border-left: 5px solid #81a1c1; margin-bottom: 15px; }
+    .report-box { background-color: #ffffff; color: #000000; padding: 30px; border-radius: 10px; font-family: sans-serif; line-height: 1.6; border: 2px solid #000; }
     [data-testid="stWidgetLabel"] p { color: #88c0d0 !important; font-weight: 600; font-size: 1.1rem; }
 </style>
 """, unsafe_allow_html=True)
@@ -62,20 +63,18 @@ with tab_entry:
         subject = st.selectbox("📚 學科", ["國文", "英文", "數學", "理化", "歷史", "地理", "公民"])
         exam_range = st.text_input("🎯 考試範圍", placeholder="例：L1-L3 或 比例式")
         score = st.number_input("💯 分數", 0, 100, 60)
-        obs = st.text_area("🔍 觀察摘要", placeholder="描述學生在該範圍的具體困難...", height=100)
-        
+        obs = st.text_area("🔍 觀察摘要", placeholder="描述具體學習困難...", height=100)
         if st.button("🚀 啟動 AI 家教診斷"):
             if stu_id and obs and exam_range:
-                with st.spinner("AI 正在針對該範圍進行分析..."):
-                    prompt = f"你是一位專業家教。請針對學生{stu_id}在【{subject}】的【{exam_range}】範圍表現（分數：{score}，觀察：{obs}）提供150字內具體診斷。請特別針對該考試範圍的知識點給予複習具體建議。"
+                with st.spinner("AI 分析中..."):
+                    prompt = f"你是一位家教。請針對學生{stu_id}在{subject}的{exam_range}表現（分數：{score}，觀察：{obs}）提供150字內診斷與具體複習策略。"
                     try:
                         diagnosis = ai_engine.generate_content(prompt).text
                         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
                         hub_sheet.append_row([timestamp, stu_id, subject, exam_range, score, obs, diagnosis])
-                        st.success("✅ 數據已存檔！")
-                        st.info(f"**AI 建議：**\n\n{diagnosis}")
+                        st.success("✅ 存檔成功！")
                     except Exception as e: st.error(f"存檔異常：{e}")
-            else: st.warning("請完整填寫資訊。")
+            else: st.warning("請填寫完整資訊。")
         st.markdown('</div>', unsafe_allow_html=True)
 
 # --- Tab 2: 歷史數據 ---
@@ -85,7 +84,7 @@ with tab_view:
         df = pd.DataFrame(hub_sheet.get_all_records())
         st.dataframe(df.sort_values(by="日期時間", ascending=False), use_container_width=True)
 
-# --- Tab 3: 戰情分析室 (垂直排列 + 全範圍具體建議) ---
+# --- Tab 3: 戰情分析室 ---
 with tab_analysis:
     if hub_sheet:
         raw_data = hub_sheet.get_all_records()
@@ -107,32 +106,42 @@ with tab_analysis:
             st.subheader("👤 個人學習狀態追蹤")
             stu_list = df['學生代號'].unique()
             sel_stu = st.selectbox("選擇學生代號：", stu_list)
-            
             stu_df = df[df['學生代號'] == sel_stu].sort_values('日期時間', ascending=True)
             
-            # 進步趨勢圖
             fig_line = px.line(stu_df, x='日期時間', y='小考成績', color='學科類別', markers=True, hover_data=['考試範圍'])
             fig_line.update_layout(template="plotly_dark", yaxis_range=[0,105])
             st.plotly_chart(fig_line, use_container_width=True)
             
             st.divider()
 
-            # 3. 各學科「所有考試範圍」具體建議單
-            st.subheader(f"📝 學生 {sel_stu} 各學科歷程建議清單")
-            
-            # 依照學科分組，並列出該科所有紀錄
-            subjects_found = stu_df['學科類別'].unique()
-            
-            for sub in subjects_found:
-                # 顯示學科標題
+            # 3. 報表輸出功能 (新)
+            st.subheader("📄 輸出家長診斷報告書")
+            if st.checkbox("顯示可列印報表"):
+                report_text = f"## 🎓 學生學習診斷報告 ({sel_stu})\n"
+                report_text += f"產出日期：{datetime.now().strftime('%Y-%m-%d')}\n\n"
+                for sub in stu_df['學科類別'].unique():
+                    report_text += f"### 【{sub}】\n"
+                    sub_recs = stu_df[stu_df['學科類別'] == sub].sort_values('日期時間', ascending=False)
+                    for _, r in sub_recs.iterrows():
+                        report_text += f"- **範圍：{r['考試範圍']}** (成績：{r['小考成績']}分)\n"
+                        report_text += f"  *建議：{r['AI診斷與建議']}*\n\n"
+                
+                st.markdown('<div class="report-box">', unsafe_allow_html=True)
+                st.markdown(report_text)
+                st.markdown('</div>', unsafe_allow_html=True)
+                st.info("💡 提示：您可以直接選取上方文字複製，或按 Ctrl+P 列印此畫面存成 PDF。")
+
+            st.divider()
+
+            # 4. 各學科歷程清單 (原功能，修正 HTML 標籤問題)
+            st.subheader("📝 各學科詳細診斷紀錄")
+            for sub in stu_df['學科類別'].unique():
                 st.markdown(f'<div class="subject-header">📚 {sub}</div>', unsafe_allow_html=True)
-                
                 sub_records = stu_df[stu_df['學科類別'] == sub].sort_values('日期時間', ascending=False)
-                
                 for _, row in sub_records.iterrows():
                     clean_diag = row['AI診斷與建議'].replace('\n', '<br>')
-                    # 採用單行緊湊字串，避免縮排導致 </div> 殘留
-                    card_content = f'<div class="range-card"><b>🎯 考試範圍：{row["考試範圍"]}</b> (成績：{row["小考成績"]}分)<br><p style="margin-top:10px; color:#e5e9f0; line-height:1.6;">{clean_diag}</p></div>'
-                    st.markdown(card_content, unsafe_allow_html=True)
+                    # 徹底消除縮排，防止 </div> 殘留
+                    c = f'<div class="range-card"><b>🎯 範圍：{row["考試範圍"]}</b> (成績：{row["小考成績"]}分)<br><p style="margin-top:10px; color:#e5e9f0;">{clean_diag}</p></div>'
+                    st.markdown(c, unsafe_allow_html=True)
         else:
             st.info("💡 尚無數據。")
