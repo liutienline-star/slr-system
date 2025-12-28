@@ -57,7 +57,7 @@ ai_engine, hub_sheet = init_services()
 
 tab_entry, tab_view, tab_analysis = st.tabs(["📝 影像診斷錄入", "🔍 歷史數據庫", "📊 戰術分析室"])
 
-# --- Tab 1: 影像診斷錄入 (保持原始完整功能) ---
+# --- Tab 1: 影像診斷錄入 (視窗高度已調整) ---
 with tab_entry:
     with st.container():
         st.markdown('<div class="input-card">', unsafe_allow_html=True)
@@ -74,7 +74,8 @@ with tab_entry:
                 v_res = ai_engine.generate_content([f"分析這張{subject}({exam_range})考卷。列出錯題並摘要弱點。", img])
                 st.session_state.v_obs = v_res.text
         
-        obs = st.text_area("🔍 導師觀察摘要", value=st.session_state.v_obs, height=120)
+        # --- 校長需求：這裡的高度已從 120 調整為 400 ---
+        obs = st.text_area("🔍 導師觀察摘要", value=st.session_state.v_obs, height=400)
 
         if st.button("🚀 生成補強建議並存檔"):
             if stu_id and obs and exam_range:
@@ -85,7 +86,7 @@ with tab_entry:
             else: st.warning("請填寫必要欄位。")
         st.markdown('</div>', unsafe_allow_html=True)
 
-# --- Tab 2: 歷史數據庫 (保持完整顯示) ---
+# --- Tab 2: 歷史數據庫 (完整保留) ---
 with tab_view:
     if hub_sheet:
         if st.button("🔄 刷新數據"): st.rerun()
@@ -93,7 +94,7 @@ with tab_view:
         if not raw_df.empty:
             st.dataframe(raw_df.sort_values(by="日期時間", ascending=False), use_container_width=True)
 
-# --- Tab 3: 戰術分析室 (更新重點提示邏輯) ---
+# --- Tab 3: 戰術分析室 (考前重點提示版) ---
 with tab_analysis:
     if hub_sheet:
         raw_data = hub_sheet.get_all_records()
@@ -108,7 +109,6 @@ with tab_analysis:
             st.divider()
             
             if not stu_df.empty:
-                # 視覺化圖表
                 st.subheader("📊 學習歷程雷達圖")
                 avg_scores = stu_df.groupby('學科類別')['小考成績'].mean().reset_index()
                 fig_radar = px.line_polar(avg_scores, r='小考成績', theta='學科類別', line_close=True, range_r=[0,100])
@@ -118,14 +118,12 @@ with tab_analysis:
                 
                 st.divider()
 
-                # 核心戰術調度
                 st.markdown(f"### ⚡ {sel_stu} 戰術任務調度")
                 analysis_modes = ["📡 跨科整合診斷"] + sorted(list(stu_df['學科類別'].unique()))
                 sel_mode = st.radio("請選擇分析維度：", analysis_modes, horizontal=True)
 
                 st.markdown("---")
 
-                # 分流 1：跨科整合診斷 (保持原版)
                 if sel_mode == "📡 跨科整合診斷":
                     st.info("💡 系統正分析所有學科的 AI 診斷建議，找尋底層共性問題。")
                     if st.button(f"執行 {sel_stu} 跨科深度診斷"):
@@ -135,7 +133,6 @@ with tab_analysis:
                             dispatch_res = ai_engine.generate_content(dispatch_prompt).text
                             st.markdown(f'<div class="special-box" style="border-left: 8px solid #bf616a;"><h4 style="color:#bf616a;">📡 導師跨科戰略洞察</h4>{dispatch_res.replace("\n", "<br>")}</div>', unsafe_allow_html=True)
 
-                # 分流 2：單科 考前重點補強提示 (已按校長指示調整)
                 else:
                     target_sub = sel_mode
                     sub_specific_df = stu_df[stu_df['學科類別'] == target_sub]
@@ -143,16 +140,13 @@ with tab_analysis:
                     
                     if st.button(f"生成 {target_sub} 重點補強提示"):
                         with st.spinner(f"正在分析 {target_sub} 弱點..."):
-                            # 抓取該科目最近 5 筆導師觀察摘要
                             history_context = "\n".join([f"範圍:{r['考試範圍']}, 摘要:{r['導師觀察摘要']}" for _, r in sub_specific_df.head(5).iterrows()])
-                            # 提示詞調整：移除天數，改為重點提示
-                            hunt_prompt = f"你是專科教練。針對學生在{target_sub}的歷史錯誤紀錄：\n{history_context}\n請產出『考前重點補強提示』。列出最需要注意的 3-5 個觀念陷阱、常見錯題型態與複習應對策略。"
+                            hunt_prompt = f"針對學生在{target_sub}的歷史錯誤紀錄：\n{history_context}\n請產出『考前重點補強提示』。列出最需要注意的 3-5 個觀念陷阱、常見錯題型態與複習應對策略。"
                             hunt_res = ai_engine.generate_content(hunt_prompt).text
                             st.markdown(f'<div class="special-box"><h4 style="color:#88c0d0;">🎯 {target_sub} 考前重點補強提示</h4>{hunt_res.replace("\n", "<br>")}</div>', unsafe_allow_html=True)
 
                 st.divider()
 
-                # C. 完整報表與歷程 (保持原版)
                 st.subheader("📊 詳細歷史紀錄與報表")
                 if st.checkbox("開啟預覽家長診斷報告"):
                     r_text = f"## 🎓 {sel_stu} 學習診斷報告\n"
