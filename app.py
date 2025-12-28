@@ -84,7 +84,7 @@ with tab_entry:
             with st.spinner("AI 事實掃描中..."):
                 img = Image.open(uploaded_file)
                 v_res = ai_engine.generate_content([
-                    "你是一位嚴謹的教育分析師。請列出題號、知識點名稱，並判讀錯誤本質。嚴禁編造課本頁碼，僅提供事實清單。", img
+                    "你是一位嚴謹的教育分析師。請列出錯題題號、提供正確答案、知識點名稱，並判讀錯誤本質。嚴禁編造課本頁碼，僅提供事實清單。", img
                 ])
                 st.session_state.v_obs = v_res.text
         
