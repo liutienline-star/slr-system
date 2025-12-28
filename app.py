@@ -13,7 +13,7 @@ HUB_NAME = "Student_Learning_Hub"
 SHEET_TAB = "Learning_Data" 
 MODEL_NAME = "models/gemini-2.0-flash" 
 
-st.set_page_config(page_title="學思戰術指揮系統", layout="wide", page_icon="📈")
+st.set_page_config(page_title="學思策略輔助系統", layout="wide", page_icon="📈")
 
 # --- 2. 視覺風格 ---
 st.markdown("""
@@ -51,13 +51,13 @@ if 'authenticated' not in st.session_state: st.session_state.authenticated = Fal
 if not st.session_state.authenticated:
     _, col_m, _ = st.columns([0.5, 1, 0.5])
     with col_m:
-        st.markdown("<h2 style='text-align:center; color:#88c0d0;'>戰情系統登入</h2>", unsafe_allow_html=True)
+        st.markdown("<h2 style='text-align:center; color:#88c0d0;'>學思策略輔助系統登入</h2>", unsafe_allow_html=True)
         if st.text_input("輸入授權碼：", type="password") == AUTH_CODE:
             st.session_state.authenticated = True; st.rerun()
     st.stop()
 
 # --- 5. 主程式 ---
-st.markdown('<h1 class="main-header">🏫 「學思戰情」深度段考診斷系統</h1>', unsafe_allow_html=True)
+st.markdown('<h1 class="main-header">🏫 學思策略輔助診斷系統</h1>', unsafe_allow_html=True)
 ai_engine, hub_sheet = init_services()
 
 tab_entry, tab_view, tab_analysis = st.tabs(["📝 影像深度診讀", "🔍 歷史數據庫", "📊 戰術分析室"])
