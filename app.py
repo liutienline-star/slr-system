@@ -67,7 +67,7 @@ tab_entry, tab_view, tab_analysis = st.tabs(["📝 影像診斷錄入", "🔍 �
 
 # --- Tab 1: 影像診斷錄入 ---
 with tab_entry:
-    st.markdown('<div class="warning-note">⚠️ 系統提示：所有 AI 建議皆基於學科知識事實，禁止編造頁碼，請依實際教材對照。</div>', unsafe_allow_html=True)
+    st.markdown('<div class="warning-note">⚠️ 系統提示：所有 AI 建議皆基於學術事實。嚴禁編造頁碼。指令要求：直接、具體、去美化。</div>', unsafe_allow_html=True)
     with st.container():
         st.markdown('<div class="input-card">', unsafe_allow_html=True)
         col1, col2 = st.columns(2)
@@ -83,18 +83,20 @@ with tab_entry:
         if uploaded_file and st.button("🔍 執行事實導向影像診讀"):
             with st.spinner("AI 事實掃描中..."):
                 img = Image.open(uploaded_file)
+                # 修改 Prompt：要求純事實，不得美化
                 v_res = ai_engine.generate_content([
-                    "你是一位嚴謹的教育分析師。請列出錯題題號、提供正確答案、知識點名稱，並判讀錯誤本質。嚴禁編造課本頁碼，僅提供事實清單。", img
+                    "你是一位專業診斷員。請列出錯題題號、正確答案、知識點。禁止美化語言，禁止情緒字眼，禁止編造頁碼。僅產出可核對的事實表。", img
                 ])
                 st.session_state.v_obs = v_res.text
         
         obs = st.text_area("🔍 錯誤事實摘要", value=st.session_state.v_obs, height=400)
 
-        if st.button("🚀 生成數據診斷並存檔"):
+        if st.button("🚀 生成戰術診斷並存檔"):
             if stu_id and obs:
                 with st.spinner("數據同步中..."):
-                    diag = ai_engine.generate_content(f"基於事實：{obs}，提供 150 字內補強策略。嚴禁編造頁碼，需可受檢核。").text
-                    # 確保寫入的欄位順序與標頭一致
+                    # 修改 Prompt：採用指令風格，移除美化
+                    diag_prompt = f"針對錯誤事實：{obs}。請以『診斷書』口吻提供 150 字內補強策略。要求：禁止鼓勵性修辭，直接提供修正動作。嚴禁編造頁碼。"
+                    diag = ai_engine.generate_content(diag_prompt).text
                     hub_sheet.append_row([datetime.now().strftime("%Y-%m-%d %H:%M"), stu_id, subject, exam_range, score, obs, diag])
                     st.success("✅ 數據存檔成功！"); st.session_state.v_obs = ""
             else: st.warning("請填寫必要欄位。")
@@ -108,13 +110,12 @@ with tab_view:
         if not raw_df.empty:
             st.dataframe(raw_df.sort_values(by="日期時間", ascending=False), use_container_width=True)
 
-# --- Tab 3: 戰術分析室 (欄位對齊修正) ---
+# --- Tab 3: 戰術分析室 ---
 with tab_analysis:
     if hub_sheet:
         raw_data = hub_sheet.get_all_records()
         if raw_data:
             df = pd.DataFrame(raw_data)
-            # 關鍵修正點：確保 DataFrame 欄位名稱與 Sheet 標頭完全一致
             df['成績'] = pd.to_numeric(df['測驗成績'], errors='coerce').fillna(0)
             
             stu_list = df['學生代號'].unique()
@@ -136,17 +137,21 @@ with tab_analysis:
                 sel_mode = st.radio("選擇維度：", analysis_modes, horizontal=True)
 
                 if sel_mode == "📡 跨科學習行為分析":
-                    if st.button(f"執行 {sel_stu} 跨科共性分析"):
+                    if st.button(f"執行 {sel_stu} 跨科共性診斷"):
                         with st.spinner("數據交叉比對中..."):
                             cross_context = "\n".join([f"{r['學科類別']}：{r['AI診斷與建議']}" for _, r in stu_df.head(10).iterrows()])
-                            dispatch_res = ai_engine.generate_content(f"分析以下跨科錯誤並指出共同模式，嚴禁頁碼：{cross_context}").text
+                            # 修改 Prompt：排除修飾
+                            dispatch_prompt = f"分析以下跨科紀錄：{cross_context}。直接指出底層共性弱點與修正方案。禁止美化，嚴禁頁碼。"
+                            dispatch_res = ai_engine.generate_content(dispatch_prompt).text
                             st.markdown(f'<div class="special-box">{dispatch_res.replace("\n", "<br>")}</div>', unsafe_allow_html=True)
                 else:
                     target_sub = sel_mode
-                    if st.button(f"生成 {target_sub} 精準補強建議"):
+                    if st.button(f"生成 {target_sub} 戰術補強指令"):
                         with st.spinner(f"分析 {target_sub} 趨勢..."):
                             history_context = "\n".join([f"範圍:{r['考試範圍']}, 紀錄:{r['導師觀察摘要']}" for _, r in stu_df[stu_df['學科類別'] == target_sub].head(5).iterrows()])
-                            hunt_res = ai_engine.generate_content(f"針對 {target_sub} 紀錄提供段考複習建議，嚴禁頁碼：{history_context}").text
+                            # 修改 Prompt：戰術指令風格
+                            hunt_prompt = f"針對 {target_sub} 紀錄：{history_context}。生成段考複習指令：1. 核心弱點、2. 修正動作、3. 考前重點。禁止美化修辭，禁止頁碼。"
+                            hunt_res = ai_engine.generate_content(hunt_prompt).text
                             st.markdown(f'<div class="special-box">{hunt_res.replace("\n", "<br>")}</div>', unsafe_allow_html=True)
 
                 st.divider()
