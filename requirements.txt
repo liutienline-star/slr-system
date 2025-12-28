@@ -1,6 +1,7 @@
-streamlit
 google-generativeai
 gspread
 oauth2client
 pandas
 plotly
+Pillow
+fpdf2
