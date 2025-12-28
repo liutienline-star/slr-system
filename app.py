@@ -15,7 +15,7 @@ MODEL_NAME = "models/gemini-2.0-flash"
 
 st.set_page_config(page_title="學思戰情系統", layout="wide", page_icon="📈")
 
-# --- 2. 視覺風格 (徹底排除標籤干擾) ---
+# --- 2. 視覺風格 ---
 st.markdown("""
 <style>
     .stApp { background-color: #1a1c23; color: #e5e9f0; }
@@ -24,6 +24,7 @@ st.markdown("""
     .input-card { background-color: #2e3440; padding: 20px; border-radius: 12px; border: 1px solid #4c566a; margin-bottom: 20px; }
     .subject-header { color: #88c0d0; border-bottom: 2px solid #88c0d0; padding-bottom: 5px; margin-top: 25px; margin-bottom: 15px; font-size: 1.5rem; font-weight: bold; }
     .range-card { background-color: #2e3440; padding: 20px; border-radius: 12px; border-left: 5px solid #81a1c1; margin-bottom: 15px; }
+    .special-box { background-color: #3b4252; padding: 25px; border-radius: 15px; border: 1px solid #88c0d0; margin-bottom: 20px; box-shadow: 0px 4px 10px rgba(0,0,0,0.3); }
     .report-box { background-color: #ffffff; color: #000000; padding: 30px; border-radius: 10px; font-family: sans-serif; line-height: 1.6; border: 2px solid #000; margin-top: 10px; }
     [data-testid="stWidgetLabel"] p { color: #88c0d0 !important; font-weight: 600; font-size: 1.1rem; }
 </style>
@@ -51,12 +52,12 @@ if not st.session_state.authenticated:
             st.session_state.authenticated = True; st.rerun()
     st.stop()
 
-st.markdown('<h1 class="main-header">🏫 「學思戰情」智慧影像診斷系統</h1>', unsafe_allow_html=True)
+st.markdown('<h1 class="main-header">🏫 「學思戰情」跨科調度與診斷系統</h1>', unsafe_allow_html=True)
 ai_engine, hub_sheet = init_services()
 
-tab_entry, tab_view, tab_analysis = st.tabs(["📝 影像診斷錄入", "🔍 歷史數據", "📊 精確戰情分析"])
+tab_entry, tab_view, tab_analysis = st.tabs(["📝 影像診斷錄入", "🔍 歷史數據", "📊 戰術分析室"])
 
-# --- Tab 1: 影像診斷與錄入 ---
+# --- Tab 1: 影像診斷錄入 ---
 with tab_entry:
     with st.container():
         st.markdown('<div class="input-card">', unsafe_allow_html=True)
@@ -64,44 +65,30 @@ with tab_entry:
         subject = st.selectbox("📚 學科", ["國文", "英文", "數學", "理化", "歷史", "地理", "公民"])
         exam_range = st.text_input("🎯 考試範圍", placeholder="例：L1-L3")
         score = st.number_input("💯 分數", 0, 100, 60)
-        
-        st.markdown("---")
-        st.markdown("📷 **考卷/講義影像辨識**")
-        uploaded_file = st.file_uploader("點擊或拖拽考卷照片至此", type=["jpg", "jpeg", "png"])
-        
-        # 使用 Session State 暫存 AI 辨識內容
+        uploaded_file = st.file_uploader("📷 上傳考卷照片 (選填)", type=["jpg", "jpeg", "png"])
         if "obs_text" not in st.session_state: st.session_state.obs_text = ""
-
-        if uploaded_file is not None:
-            if st.button("🔍 執行 AI 錯題掃描"):
-                with st.spinner("Gemini 正在分析照片中的錯誤..."):
-                    img = Image.open(uploaded_file)
-                    v_prompt = f"你是一位專業導師。請分析這張照片（科目：{subject}，範圍：{exam_range}）。請找出學生的錯題，判斷其錯誤原因（如：運算錯誤、觀念混淆、或是未讀懂題目），並給予精簡的摘要。"
-                    res = ai_engine.generate_content([v_prompt, img])
-                    st.session_state.obs_text = res.text
-        
-        obs = st.text_area("🔍 觀察摘要 (AI 自動辨識或手動修正)", value=st.session_state.obs_text, height=150)
-
-        if st.button("🚀 生成最終診斷並存檔"):
+        if uploaded_file and st.button("🔍 掃描錯題"):
+            with st.spinner("AI 診斷影像中..."):
+                img = Image.open(uploaded_file)
+                v_res = ai_engine.generate_content([f"請分析這張{subject}({exam_range})考卷的錯題原因與概念。", img])
+                st.session_state.obs_text = v_res.text
+        obs = st.text_area("🔍 觀察摘要", value=st.session_state.obs_text, height=120)
+        if st.button("🚀 同步至雲端戰情室"):
             if stu_id and obs and exam_range:
-                with st.spinner("正在生成針對性複習計畫..."):
-                    f_prompt = f"根據學生{stu_id}在{subject}({exam_range})的表現與錯誤細節：{obs}。請提供150字內、針對該範圍的具體複習行動建議。"
-                    diag = ai_engine.generate_content(f_prompt).text
-                    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
-                    hub_sheet.append_row([timestamp, stu_id, subject, exam_range, score, obs, diag])
-                    st.success("✅ 影像分析與診斷已成功同步至 HUB！")
-                    st.session_state.obs_text = "" # 清空暫存
-            else: st.warning("請填寫學生代號並確保有觀察摘要。")
+                f_prompt = f"針對學生{stu_id}在{subject}({exam_range})表現與細節：{obs}。請提供150字內複習策略。"
+                diag = ai_engine.generate_content(f_prompt).text
+                hub_sheet.append_row([datetime.now().strftime("%Y-%m-%d %H:%M"), stu_id, subject, exam_range, score, obs, diag])
+                st.success("✅ 存檔完成！"); st.session_state.obs_text = ""
         st.markdown('</div>', unsafe_allow_html=True)
 
 # --- Tab 2: 歷史數據 ---
 with tab_view:
     if hub_sheet:
-        if st.button("🔄 刷新雲端數據"): st.rerun()
+        if st.button("🔄 刷新數據"): st.rerun()
         df = pd.DataFrame(hub_sheet.get_all_records())
         st.dataframe(df.sort_values(by="日期時間", ascending=False), use_container_width=True)
 
-# --- Tab 3: 精確戰情分析室 (含報表篩選) ---
+# --- Tab 3: 戰術分析室 (核心整合) ---
 with tab_analysis:
     if hub_sheet:
         raw_data = hub_sheet.get_all_records()
@@ -109,61 +96,55 @@ with tab_analysis:
             df = pd.DataFrame(raw_data)
             df['小考成績'] = pd.to_numeric(df['小考成績'], errors='coerce').fillna(0)
             
-            # 全班雷達圖
-            st.subheader("🕸️ 全班學習力平均分布")
-            avg_scores = df.groupby('學科類別')['小考成績'].mean().reset_index()
-            fig_radar = px.line_polar(avg_scores, r='小考成績', theta='學科類別', line_close=True, range_r=[0,100])
-            fig_radar.update_traces(fill='toself', line_color='#88c0d0')
-            fig_radar.update_layout(template="plotly_dark")
-            st.plotly_chart(fig_radar, use_container_width=True)
-            st.divider()
-
-            # 精確篩選區
-            st.subheader("👤 個人學習狀態追蹤")
+            # 1. 選擇學生與分析
             stu_list = df['學生代號'].unique()
-            sel_stu = st.selectbox("1. 選擇學生代號", stu_list)
-            stu_df = df[df['學生代號'] == sel_stu].sort_values('日期時間', ascending=True)
+            sel_stu = st.selectbox("🎯 選取分析學生代號", stu_list)
+            stu_df = df[df['學生代號'] == sel_stu].sort_values('日期時間', ascending=False)
             
-            sub_options = ["全部學科"] + list(stu_df['學科類別'].unique())
-            sel_sub = st.selectbox("2. 選擇學科", sub_options)
-            
-            if sel_sub == "全部學科":
-                filtered_df = stu_df
-                range_opts = ["全部範圍"]
-            else:
-                filtered_df = stu_df[stu_df['學科類別'] == sel_sub]
-                range_opts = ["全部範圍"] + list(filtered_df['考試範圍'].unique())
-            
-            sel_range = st.selectbox("3. 選擇考試範圍", range_opts)
-            final_df = filtered_df if sel_range == "全部範圍" else filtered_df[filtered_df['考試範圍'] == sel_range]
-
-            # 趨勢圖
-            fig_line = px.line(final_df, x='日期時間', y='小考成績', color='學科類別', markers=True)
-            fig_line.update_layout(template="plotly_dark", yaxis_range=[0,105])
-            st.plotly_chart(fig_line, use_container_width=True)
             st.divider()
 
-            # 報表輸出
-            st.subheader("📄 家長報表輸出")
-            if st.checkbox("預覽可列印報表"):
-                r_title = f"學生 {sel_stu} 學習診斷報告"
-                if sel_sub != "全部學科": r_title += f" ({sel_sub})"
-                r_text = f"## 🎓 {r_title}\n\n"
+            # 2. 考前精準獵殺計畫 (新功能)
+            st.markdown("### 🏹 二、考前精準獵殺計畫")
+            if st.button(f"生成 {sel_stu} 的 3 天獵殺清單"):
+                with st.spinner("正在分析歷史錯誤點..."):
+                    history_context = "\n".join([f"科目:{r['學科類別']}, 範圍:{r['考試範圍']}, 觀察:{r['觀察摘要']}" for _, r in stu_df.head(5).iterrows()])
+                    hunt_prompt = f"你是一位學習教練。根據這位學生最近的錯誤紀錄：\n{history_context}\n請生成一個 3 天的『精準補強時程表』，針對這些弱點告訴他每天要練習什麼題型，保持簡潔有力。"
+                    hunt_res = ai_engine.generate_content(hunt_prompt).text
+                    st.markdown(f'<div class="special-box"><h4 style="color:#88c0d0;">🎯 3 天精準補強清單</h4>{hunt_res.replace("\n", "<br>")}</div>', unsafe_allow_html=True)
+
+            st.divider()
+
+            # 3. 學習資源調度模式 (新功能)
+            st.markdown("### 🧠 三、學習資源跨科調度診斷")
+            if st.button(f"分析 {sel_stu} 的核心學習瓶頸"):
+                with st.spinner("正在尋找跨科關聯性..."):
+                    cross_context = "\n".join([f"{r['學科類別']}：{r['AI診斷與建議']}" for _, r in stu_df.head(8).iterrows()])
+                    dispatch_prompt = f"分析以下多科診斷紀錄：\n{cross_context}\n請找出底層的共同問題（例如：長文本閱讀耐力不足、邏輯推演斷層、或是時間分配失衡），而非單一學科知識。提供導師建議，200字內。"
+                    dispatch_res = ai_engine.generate_content(dispatch_prompt).text
+                    st.markdown(f'<div class="special-box" style="border-left: 8px solid #bf616a;"><h4 style="color:#bf616a;">📡 導師跨科調度洞察</h4>{dispatch_res.replace("\n", "<br>")}</div>', unsafe_allow_html=True)
+
+            st.divider()
+
+            # 4. 原有：精確篩選與報表 (不變)
+            st.subheader("📊 個別學科歷程與報表")
+            sub_opts = ["全部學科"] + list(stu_df['學科類別'].unique())
+            sel_sub = st.selectbox("選擇學科進行篩選", sub_opts)
+            
+            final_df = stu_df if sel_sub == "全部學科" else stu_df[stu_df['學科類別'] == sel_sub]
+            
+            if st.checkbox("顯示家長報表預覽"):
+                r_text = f"## 🎓 {sel_stu} 學習診斷報告\n"
                 for s in final_df['學科類別'].unique():
                     r_text += f"### 【{s}】\n"
-                    recs = final_df[final_df['學科類別'] == s].sort_values('日期時間', ascending=False)
-                    for _, r in recs.iterrows():
-                        r_text += f"- **範圍：{r['考試範圍']}** (成績：{r['小考成績']}分)\n  *診斷建議：{r['AI診斷與建議']}*\n\n"
+                    for _, r in final_df[final_df['學科類別'] == s].iterrows():
+                        r_text += f"- **範圍：{r['考試範圍']}** ({r['小考成績']}分)\n  *建議：{r['AI診斷與建議']}*\n\n"
                 st.markdown('<div class="report-box">', unsafe_allow_html=True)
                 st.markdown(r_text)
                 st.markdown('</div>', unsafe_allow_html=True)
 
-            st.divider()
-
-            # 歷程卡片
-            st.subheader("📝 詳細歷程紀錄")
+            # 5. 詳細紀錄卡片
             for s in final_df['學科類別'].unique():
                 st.markdown(f'<div class="subject-header">📚 {s}</div>', unsafe_allow_html=True)
-                for _, row in final_df[final_df['學科類別'] == s].sort_values('日期時間', ascending=False).iterrows():
-                    c = f'<div class="range-card"><b>🎯 範圍：{row["考試範圍"]}</b> ({row["小考成績"]}分)<br><p style="margin-top:10px;">{row["AI診斷與建議"]}</p></div>'
-                    st.markdown(c, unsafe_allow_html=True)
+                for _, row in final_df[final_df['學科類別'] == s].iterrows():
+                    c_html = f'<div class="range-card"><b>🎯 範圍：{row["考試範圍"]}</b> ({row["小考成績"]}分)<br><p style="margin-top:10px;">{row["AI診斷與建議"]}</p></div>'
+                    st.markdown(c_html, unsafe_allow_html=True)
