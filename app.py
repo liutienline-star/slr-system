@@ -15,7 +15,7 @@ MODEL_NAME = "models/gemini-2.0-flash"
 
 st.set_page_config(page_title="學思戰術指揮系統", layout="wide", page_icon="📈")
 
-# --- 2. 視覺風格 (保持校長指定的深色戰術介面) ---
+# --- 2. 視覺風格 (校長指定的深色戰術介面) ---
 st.markdown("""
 <style>
     .stApp { background-color: #1a1c23; color: #e5e9f0; }
@@ -57,7 +57,7 @@ ai_engine, hub_sheet = init_services()
 
 tab_entry, tab_view, tab_analysis = st.tabs(["📝 影像診斷錄入", "🔍 歷史數據庫", "📊 戰術分析室"])
 
-# --- Tab 1: 影像診斷錄入 (保持原始錄入邏輯) ---
+# --- Tab 1: 影像診斷錄入 (保持原始完整功能) ---
 with tab_entry:
     with st.container():
         st.markdown('<div class="input-card">', unsafe_allow_html=True)
@@ -80,7 +80,6 @@ with tab_entry:
             if stu_id and obs and exam_range:
                 with st.spinner("存檔中..."):
                     diag = ai_engine.generate_content(f"針對{subject}({exam_range})表現：{obs}。給150字建議。").text
-                    # 存入順序：日期時間, 學生代號, 學科類別, 考試範圍, 小考成績, 導師觀察摘要, AI診斷與建議
                     hub_sheet.append_row([datetime.now().strftime("%Y-%m-%d %H:%M"), stu_id, subject, exam_range, score, obs, diag])
                     st.success("✅ 數據已同步！"); st.session_state.v_obs = ""
             else: st.warning("請填寫必要欄位。")
@@ -94,7 +93,7 @@ with tab_view:
         if not raw_df.empty:
             st.dataframe(raw_df.sort_values(by="日期時間", ascending=False), use_container_width=True)
 
-# --- Tab 3: 戰術分析室 (依科目分流，功能不縮減) ---
+# --- Tab 3: 戰術分析室 (更新重點提示邏輯) ---
 with tab_analysis:
     if hub_sheet:
         raw_data = hub_sheet.get_all_records()
@@ -109,7 +108,7 @@ with tab_analysis:
             st.divider()
             
             if not stu_df.empty:
-                # A. 視覺化圖表 (保留)
+                # 視覺化圖表
                 st.subheader("📊 學習歷程雷達圖")
                 avg_scores = stu_df.groupby('學科類別')['小考成績'].mean().reset_index()
                 fig_radar = px.line_polar(avg_scores, r='小考成績', theta='學科類別', line_close=True, range_r=[0,100])
@@ -119,43 +118,41 @@ with tab_analysis:
                 
                 st.divider()
 
-                # B. 核心戰術調度 (新增科目分流選單)
+                # 核心戰術調度
                 st.markdown(f"### ⚡ {sel_stu} 戰術任務調度")
-                
-                # 自動抓取該生有紀錄的科目，並加入跨科選項
                 analysis_modes = ["📡 跨科整合診斷"] + sorted(list(stu_df['學科類別'].unique()))
                 sel_mode = st.radio("請選擇分析維度：", analysis_modes, horizontal=True)
 
                 st.markdown("---")
 
-                # 分流 1：跨科整合診斷
+                # 分流 1：跨科整合診斷 (保持原版)
                 if sel_mode == "📡 跨科整合診斷":
                     st.info("💡 系統正分析所有學科的 AI 診斷建議，找尋底層共性問題。")
                     if st.button(f"執行 {sel_stu} 跨科深度診斷"):
                         with st.spinner("AI 跨科診斷中..."):
-                            # 抓取最近 10 筆 AI 診斷建議
                             cross_context = "\n".join([f"{r['學科類別']}：{r['AI診斷與建議']}" for _, r in stu_df.head(10).iterrows()])
-                            dispatch_prompt = f"分析以下多科診斷紀錄：\n{cross_context}\n請找出底層共同問題（如：閱讀理解、邏輯規律、粗心習慣）。提供導師具體的調度建議，200字內。"
+                            dispatch_prompt = f"分析以下多科診斷紀錄：\n{cross_context}\n請找出底層共同問題（如：閱讀理解、邏輯規律、粗心規律）。提供導師具體的調度建議，200字內。"
                             dispatch_res = ai_engine.generate_content(dispatch_prompt).text
                             st.markdown(f'<div class="special-box" style="border-left: 8px solid #bf616a;"><h4 style="color:#bf616a;">📡 導師跨科戰略洞察</h4>{dispatch_res.replace("\n", "<br>")}</div>', unsafe_allow_html=True)
 
-                # 分流 2：單科 3 天獵殺計畫
+                # 分流 2：單科 考前重點補強提示 (已按校長指示調整)
                 else:
                     target_sub = sel_mode
                     sub_specific_df = stu_df[stu_df['學科類別'] == target_sub]
-                    st.info(f"💡 系統將針對 {target_sub} 的錯誤摘要，生成專屬 3 天獵殺補強計畫。")
+                    st.info(f"💡 系統將針對 {target_sub} 的錯誤摘要，生成考前重點補強提示。")
                     
-                    if st.button(f"生成 {target_sub} 補強清單"):
+                    if st.button(f"生成 {target_sub} 重點補強提示"):
                         with st.spinner(f"正在分析 {target_sub} 弱點..."):
                             # 抓取該科目最近 5 筆導師觀察摘要
                             history_context = "\n".join([f"範圍:{r['考試範圍']}, 摘要:{r['導師觀察摘要']}" for _, r in sub_specific_df.head(5).iterrows()])
-                            hunt_prompt = f"針對學生在{target_sub}的歷史錯誤：\n{history_context}\n請產出一個『3天精準獵殺時程表』。列出第一、二、三天分別應攻克的題型與複習重點。"
+                            # 提示詞調整：移除天數，改為重點提示
+                            hunt_prompt = f"你是專科教練。針對學生在{target_sub}的歷史錯誤紀錄：\n{history_context}\n請產出『考前重點補強提示』。列出最需要注意的 3-5 個觀念陷阱、常見錯題型態與複習應對策略。"
                             hunt_res = ai_engine.generate_content(hunt_prompt).text
-                            st.markdown(f'<div class="special-box"><h4 style="color:#88c0d0;">🎯 {target_sub} 3 天精準補強清單</h4>{hunt_res.replace("\n", "<br>")}</div>', unsafe_allow_html=True)
+                            st.markdown(f'<div class="special-box"><h4 style="color:#88c0d0;">🎯 {target_sub} 考前重點補強提示</h4>{hunt_res.replace("\n", "<br>")}</div>', unsafe_allow_html=True)
 
                 st.divider()
 
-                # C. 完整報表與歷程 (保留)
+                # C. 完整報表與歷程 (保持原版)
                 st.subheader("📊 詳細歷史紀錄與報表")
                 if st.checkbox("開啟預覽家長診斷報告"):
                     r_text = f"## 🎓 {sel_stu} 學習診斷報告\n"
@@ -163,11 +160,8 @@ with tab_analysis:
                         r_text += f"### 【{s}】\n"
                         for _, r in stu_df[stu_df['學科類別'] == s].iterrows():
                             r_text += f"- **範圍：{r['考試範圍']}** ({r['小考成績']}分)\n  *複習策略：{r['AI診斷與建議']}*\n\n"
-                    st.markdown('<div class="report-box">', unsafe_allow_html=True)
-                    st.markdown(r_text)
-                    st.markdown('</div>', unsafe_allow_html=True)
+                    st.markdown('<div class="report-box">' + r_text + '</div>', unsafe_allow_html=True)
 
-                # 詳細卡片列表 (保留)
                 for s in stu_df['學科類別'].unique():
                     st.markdown(f'<div class="subject-header">📚 {s} 紀錄細節</div>', unsafe_allow_html=True)
                     for _, row in stu_df[stu_df['學科類別'] == s].iterrows():
