@@ -15,7 +15,7 @@ MODEL_NAME = "models/gemini-2.0-flash"
 
 st.set_page_config(page_title="學思戰術指揮系統", layout="wide", page_icon="📈")
 
-# --- 2. 視覺風格 (CSS 控制) ---
+# --- 2. 視覺風格 ---
 st.markdown("""
 <style>
     .main .block-container { max-width: 1000px; padding-top: 2rem; }
@@ -62,7 +62,7 @@ ai_engine, hub_sheet = init_services()
 
 tab_entry, tab_view, tab_analysis = st.tabs(["📝 影像深度診讀", "🔍 歷史數據庫", "📊 戰術分析室"])
 
-# --- Tab 1: 診斷錄入 (保留詳盡敘述) ---
+# --- Tab 1: 錄入區 (修正為支援多圖上傳) ---
 with tab_entry:
     with st.container():
         st.markdown('<div class="input-card">', unsafe_allow_html=True)
@@ -72,27 +72,33 @@ with tab_entry:
         
         exam_range = st.text_input("🎯 段考範圍", placeholder="例：第一次段考")
         score = st.number_input("💯 測驗成績", 0, 100, 60)
-        uploaded_file = st.file_uploader("📷 上傳考卷影像", type=["jpg", "jpeg", "png"])
+        
+        # --- 核心修正：加入 accept_multiple_files=True ---
+        uploaded_files = st.file_uploader("📷 上傳考卷影像 (可同時選取多張，如正反面)", type=["jpg", "jpeg", "png"], accept_multiple_files=True)
         
         diag_mode = st.radio("🛠️ 診斷模式", ["⚡ 快速掃描 (含詳盡錯誤描述)", "🧠 深度運算 (含步驟驗證分析)"], horizontal=True)
 
         if "v_obs" not in st.session_state: st.session_state.v_obs = ""
         
-        if uploaded_file and st.button("🔍 執行事實診讀"):
-            with st.spinner("AI 事實掃描中..."):
-                img = Image.open(uploaded_file)
+        if uploaded_files and st.button("🔍 執行事實診讀"):
+            with st.spinner(f"正在分析 {len(uploaded_files)} 張影像內容..."):
+                # 將所有上傳的檔案轉換為 PIL Image 物件
+                imgs = [Image.open(f) for f in uploaded_files]
+                
                 if "快速掃描" in diag_mode:
-                    prompt = "你是一位教育診斷專家。請產出售錯題號、正確答案、知識點，並【詳述】學生的具體錯誤點與思維漏洞。去美化，嚴禁頁碼。"
+                    prompt = "你是一位教育診斷專家。請分析這份考卷的所有影像（包含正反面），產出售錯題號、正確答案、知識點，並【詳述】學生的具體錯誤點與思維漏洞。要求：敘述必須具備教學指導價值，去美化，嚴禁編造頁碼。"
                 else:
-                    prompt = "你是一位數理診斷專家。請驗證學生的計算路徑，【詳盡分析】出錯的具體步驟與邏輯。去美化，嚴禁頁碼。"
-                v_res = ai_engine.generate_content([prompt, img])
+                    prompt = "你是一位數理診斷專家。請分析這份考卷的所有影像中的手寫計算過程，驗證學生的計算路徑，【詳盡分析】出錯的具體步驟與邏輯。要求：事實導向，去美化，嚴禁頁碼。"
+                
+                # 將 Prompt 與所有圖片一起送交 AI
+                v_res = ai_engine.generate_content([prompt] + imgs)
                 st.session_state.v_obs = v_res.text
         
         obs = st.text_area("🔍 錯誤事實紀錄", value=st.session_state.v_obs, height=450)
 
         if st.button("🚀 同步至戰情庫"):
             if stu_id and obs:
-                with st.spinner("歸檔中..."):
+                with st.spinner("同步中..."):
                     diag = ai_engine.generate_content(f"基於事實：{obs}。產出具備指導價值的複習建議，去美化，嚴禁頁碼。").text
                     hub_sheet.append_row([datetime.now().strftime("%Y-%m-%d %H:%M"), stu_id, subject, exam_range, score, obs, diag])
                     st.success("✅ 數據已歸檔！"); st.session_state.v_obs = ""
@@ -107,7 +113,7 @@ with tab_view:
         if not raw_df.empty:
             st.dataframe(raw_df.sort_values(by="日期時間", ascending=False), use_container_width=True)
 
-# --- Tab 3: 戰術分析室 (新增考前重點提示) ---
+# --- Tab 3: 戰術分析室 (維持考前戰術功能) ---
 with tab_analysis:
     if hub_sheet:
         raw_data = hub_sheet.get_all_records()
@@ -119,31 +125,21 @@ with tab_analysis:
             stu_df = df[df['學生代號'] == sel_stu].sort_values('日期時間', ascending=False)
             
             if not stu_df.empty:
-                # 雷達圖
                 avg_scores = stu_df.groupby('學科類別')['成績'].mean().reset_index()
                 fig_radar = px.line_polar(avg_scores, r='成績', theta='學科類別', line_close=True, range_r=[0,100])
                 fig_radar.update_traces(fill='toself', line_color='#88c0d0')
                 st.plotly_chart(fig_radar, use_container_width=True)
                 
                 st.divider()
-
-                # 科目過濾明細
                 sub_list_hist = sorted(list(stu_df['學科類別'].unique()))
                 sel_sub_hist = st.selectbox("🔍 選擇科目檢視與生成戰術提示：", sub_list_hist)
-                
                 target_records = stu_df[stu_df['學科類別'] == sel_sub_hist]
 
-                # --- 新增：考前戰術重點提示功能 ---
                 st.markdown(f"### 🚀 {sel_sub_hist} 科：考前戰術重點提示")
-                if st.button(f"🧠 彙整 {sel_sub_hist} 歷史漏洞，產出考前指令"):
+                if st.button(f"🧠 彙整 {sel_sub_hist} 歷史漏洞"):
                     with st.spinner("戰術建模中..."):
                         history_blob = "\n".join([f"範圍:{r['考試範圍']}, 分析:{r['導師觀察摘要']}" for _, r in target_records.head(5).iterrows()])
-                        tips_prompt = f"""分析該生在 {sel_sub_hist} 的歷史錯誤紀錄：{history_blob}。
-                        請為其產出「考前戰術指令」：
-                        1. 該生最常掉入的「陷阱類型」。
-                        2. 考前 10 分鐘必須複習的「核心事實」。
-                        3. 針對其個人習慣的「操作提醒」（如：檢查單位、注意題目關鍵字）。
-                        要求：條列式、敘述詳盡、絕對去美化、嚴禁頁碼。"""
+                        tips_prompt = f"分析該生在 {sel_sub_hist} 的歷史錯誤紀錄：{history_blob}。請產出「考前戰術指令」：包含陷阱類型、核心事實、操作提醒。條列式、敘述詳盡、去美化、嚴禁頁碼。"
                         tips_res = ai_engine.generate_content(tips_prompt).text
                         st.markdown(f'<div class="tactical-advice">{tips_res.replace("\n", "<br>")}</div>', unsafe_allow_html=True)
 
