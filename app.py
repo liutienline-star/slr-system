@@ -60,7 +60,6 @@ if not st.session_state.authenticated:
 def generate_pdf_report(stu_id, subject, exam_range, tags, obs, diag):
     pdf = FPDF()
     pdf.add_page()
-    
     font_path = "font.ttf"
     if os.path.exists(font_path):
         pdf.add_font('CustomFont', '', font_path)
@@ -69,7 +68,6 @@ def generate_pdf_report(stu_id, subject, exam_range, tags, obs, diag):
         pdf.set_font('Arial', size=14)
 
     pdf.cell(200, 10, txt=f"學習診斷個人報告：{stu_id}", ln=True, align='C')
-    
     if os.path.exists(font_path): pdf.set_font('CustomFont', size=11)
     pdf.ln(10)
     pdf.cell(200, 10, txt=f"科目：{subject} | 範圍：{exam_range}", ln=True)
@@ -77,8 +75,7 @@ def generate_pdf_report(stu_id, subject, exam_range, tags, obs, diag):
     pdf.ln(5)
     pdf.multi_cell(0, 8, txt=f"【錯題事實與敘述】\n{obs}")
     pdf.ln(5)
-    pdf.multi_cell(0, 8, txt=f"【AI 補強指導建議】\n{diag}")
-    
+    pdf.multi_cell(0, 8, txt=f"【AI/教師 補強指導建議】\n{diag}")
     return bytes(pdf.output())
 
 # --- 6. 主程式 ---
@@ -87,7 +84,7 @@ ai_engine, hub_sheet = init_services()
 
 tab_entry, tab_view, tab_analysis = st.tabs(["📝 影像/PDF 深度診讀", "🔍 歷史數據庫", "📊 戰術分析室"])
 
-# --- Tab 1: 診斷錄入 ---
+# --- Tab 1: 診斷錄入 (支援手動修改建議) ---
 with tab_entry:
     with st.container():
         st.markdown('<div class="input-card">', unsafe_allow_html=True)
@@ -98,46 +95,56 @@ with tab_entry:
         exam_range = st.text_input("🎯 段考範圍")
         score = st.number_input("💯 測驗成績", 0, 100, 60)
         uploaded_files = st.file_uploader("📷 上傳考卷 (支援多圖或 PDF)", type=["jpg", "jpeg", "png", "pdf"], accept_multiple_files=True)
-        diag_mode = st.radio("🛠️ 診斷模式", ["⚡ 快速掃描 (含詳盡敘述)", "🧠 深度運算 (含步驟驗證)"], horizontal=True)
-
+        
+        # 初始化 Session State 以儲存編輯內容
         if "v_obs" not in st.session_state: st.session_state.v_obs = ""
+        if "v_diag" not in st.session_state: st.session_state.v_diag = ""
         
         if uploaded_files and st.button("🔍 執行事實診讀"):
-            with st.spinner("AI 正在分析並標記行為特徵..."):
+            with st.spinner("AI 正在解析內容並產出初步建議..."):
                 input_data = []
                 for f in uploaded_files:
                     if f.type == "application/pdf": input_data.append({"mime_type": "application/pdf", "data": f.read()})
                     else: input_data.append(Image.open(f))
                 
-                prompt = """你是一位教育診斷專家。請分析檔案內容，產出：
-                1. 錯題題號、正答、知識點。
-                2. 【詳述】學生的具體錯誤內容與原因（內容敘述）。
-                3. 【行為標籤】：請從以下選擇 1-3 個：#閱讀不周、#邏輯斷層、#運算粗心、#概念混淆、#單字不足、#圖表判讀弱。
-                要求：去美化，嚴禁編造頁碼。"""
+                # 同時請求觀察事實與初步建議
+                prompt = """你是一位教育診斷專家。請分析檔案，產出兩部分內容：
+                第一部分【事實紀錄】：包含題號、正答、知識點、具體錯誤描述、以及行為標籤（如 #閱讀不周）。
+                第二部分【補強建議】：針對以上事實給予學習指引。
+                要求：詳盡、去美化、嚴禁頁碼。"""
                 
-                v_res = ai_engine.generate_content([prompt] + input_data)
-                st.session_state.v_obs = v_res.text
+                v_res = ai_engine.generate_content([prompt] + input_data).text
+                
+                # 簡單切割 AI 回傳內容 (或讓導師自行微調)
+                if "第二部分" in v_res:
+                    st.session_state.v_obs, st.session_state.v_diag = v_res.split("第二部分")
+                else:
+                    st.session_state.v_obs = v_res
+                    st.session_state.v_diag = "請在此輸入自定義補強建議..."
         
-        obs = st.text_area("🔍 錯誤事實與指導紀錄", value=st.session_state.v_obs, height=400)
+        # 顯示兩個可編輯的文字框
+        edited_obs = st.text_area("🔍 錯誤事實與標籤紀錄 (可手動修改)", value=st.session_state.v_obs, height=300)
+        edited_diag = st.text_area("💡 補強指導建議 (可手動修改)", value=st.session_state.v_diag, height=200)
 
         if st.button("🚀 同步至戰術庫"):
-            if stu_id and obs:
-                with st.spinner("數據分析中..."):
-                    tag_res = ai_engine.generate_content(f"從以下內容提取標籤（僅回傳標籤文字）：{obs}").text
-                    diag = ai_engine.generate_content(f"基於事實：{obs}。產出具備指導價值的複習建議。去美化，嚴禁頁碼。").text
-                    hub_sheet.append_row([datetime.now().strftime("%Y-%m-%d %H:%M"), stu_id, subject, exam_range, score, obs, diag, tag_res])
-                    st.success("✅ 數據與行為標籤已成功歸檔！"); st.session_state.v_obs = ""
-            else: st.warning("請完整填寫欄位。")
+            if stu_id and edited_obs and edited_diag:
+                with st.spinner("專業數據歸檔中..."):
+                    # 從修改後的文字中提取標籤
+                    tag_res = ai_engine.generate_content(f"從以下文字提取標籤內容（僅標籤文字）：{edited_obs}").text
+                    hub_sheet.append_row([datetime.now().strftime("%Y-%m-%d %H:%M"), stu_id, subject, exam_range, score, edited_obs, edited_diag, tag_res])
+                    st.success("✅ 數據已成功同步！內容已包含您的專業手動校閱。")
+                    st.session_state.v_obs = ""; st.session_state.v_diag = ""
+            else: st.warning("請確保所有診斷內容已填寫。")
         st.markdown('</div>', unsafe_allow_html=True)
 
-# --- Tab 2: 歷史數據庫 ---
+# --- Tab 2: 歷史數據庫 (維持原功能) ---
 with tab_view:
     if hub_sheet:
         if st.button("🔄 刷新數據"): st.rerun()
         raw_df = pd.DataFrame(hub_sheet.get_all_records())
         if not raw_df.empty: st.dataframe(raw_df.sort_values(by="日期時間", ascending=False), use_container_width=True)
 
-# --- Tab 3: 戰術分析室 ---
+# --- Tab 3: 戰術分析室 (維持原功能) ---
 with tab_analysis:
     if hub_sheet:
         raw_data = hub_sheet.get_all_records()
@@ -148,13 +155,11 @@ with tab_analysis:
             stu_df = df[df['學生代號'] == sel_stu].sort_values('日期時間', ascending=False)
             
             if not stu_df.empty:
-                # 戰術雷達圖
                 avg_scores = stu_df.groupby('學科類別')['測驗成績'].mean().reset_index()
                 fig_radar = px.line_polar(avg_scores, r='測驗成績', theta='學科類別', line_close=True, range_r=[0,100])
                 fig_radar.update_traces(fill='toself', line_color='#88c0d0')
                 st.plotly_chart(fig_radar, use_container_width=True)
 
-                # 行為標籤統計
                 st.markdown("### 🏷️ 個人學習行為特徵統計")
                 all_tags = stu_df['錯誤屬性標籤'].str.cat(sep=' ').split()
                 if all_tags:
@@ -165,14 +170,12 @@ with tab_analysis:
                 
                 st.divider()
                 sub_list_hist = sorted(list(stu_df['學科類別'].unique()))
-                sel_sub_hist = st.selectbox("🔍 選擇科目明細：", sub_list_hist)
+                sel_sub_hist = st.selectbox("🔍 選擇科目檢視：", sub_list_hist)
                 target_records = stu_df[stu_df['學科類別'] == sel_sub_hist]
 
-                # 考前戰術生成
-                st.markdown(f"### 🚀 {sel_sub_hist} 科：考前戰術指令")
                 if st.button("🧠 彙整歷史漏洞"):
                     history_blob = "\n".join([f"{r['考試範圍']}:{r['導師觀察摘要']}" for _, r in target_records.head(5).iterrows()])
-                    tips_res = ai_engine.generate_content(f"分析紀錄：{history_blob}。產出考前戰術指令。").text
+                    tips_res = ai_engine.generate_content(f"分析紀錄：{history_blob}。產出考前指令。").text
                     st.markdown(f'<div class="tactical-advice">{tips_res.replace("\n", "<br>")}</div>', unsafe_allow_html=True)
 
                 st.divider()
@@ -180,14 +183,11 @@ with tab_analysis:
                 for _, row in target_records.iterrows():
                     with st.expander(f"🎯 {row['考試範圍']} - {row['測驗成績']}分"):
                         st.markdown(f"**行為特徵：** `{row['錯誤屬性標籤']}`")
+                        st.write("**[錯題事實]**")
                         st.write(row['導師觀察摘要'])
+                        st.write("**[補強建議]**")
+                        st.write(row['AI診斷與建議'])
                         
                         pdf_bytes = generate_pdf_report(sel_stu, sel_sub_hist, row['考試範圍'], row['錯誤屬性標籤'], row['導師觀察摘要'], row['AI診斷與建議'])
-                        st.download_button(
-                            label="📥 下載中文診斷報告 (PDF)",
-                            data=pdf_bytes,
-                            file_name=f"Report_{sel_stu}_{row['考試範圍']}.pdf",
-                            mime="application/pdf",
-                            key=f"dl_{row['日期時間']}"
-                        )
-        else: st.info("💡 資料庫尚無數據。")
+                        st.download_button(label="📥 下載中文報告 (PDF)", data=pdf_bytes, file_name=f"Report_{sel_stu}.pdf", mime="application/pdf", key=f"dl_{row['日期時間']}")
+        else: st.info("💡 尚未有數據。")
