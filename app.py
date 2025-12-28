@@ -61,7 +61,7 @@ ai_engine, hub_sheet = init_services()
 
 tab_entry, tab_view, tab_analysis = st.tabs(["📝 影像深度診讀", "🔍 歷史數據庫", "📊 戰術分析室"])
 
-# --- Tab 1: 錄入區 (新增模式切換) ---
+# --- Tab 1: 診斷錄入 (強化敘述邏輯) ---
 with tab_entry:
     with st.container():
         st.markdown('<div class="input-card">', unsafe_allow_html=True)
@@ -73,45 +73,50 @@ with tab_entry:
         score = st.number_input("💯 測驗成績", 0, 100, 60)
         uploaded_file = st.file_uploader("📷 上傳考卷影像", type=["jpg", "jpeg", "png"])
         
-        # 新增模式切換
-        diag_mode = st.radio("🛠️ 診斷模式", ["⚡ 快速掃描 (錯題/正答/知識點)", "🧠 深度運算 (手寫計算驗證/邏輯分析)"], horizontal=True)
+        diag_mode = st.radio("🛠️ 診斷模式", ["⚡ 快速掃描 (含詳盡錯誤描述)", "🧠 深度運算 (含步驟驗證分析)"], horizontal=True)
 
         if "v_obs" not in st.session_state: st.session_state.v_obs = ""
         
         if uploaded_file and st.button("🔍 執行事實診讀"):
-            with st.spinner("AI 邏輯運算中..."):
+            with st.spinner("正在進行事實掃描與敘述生成..."):
                 img = Image.open(uploaded_file)
+                # 強化 Prompt：要求具體的內容敘述
                 if "快速掃描" in diag_mode:
-                    prompt = "你是一位教育診斷專家。請產出售錯題號、正確答案、知識點名稱。禁止美化修辭，嚴禁編造頁碼。"
+                    prompt = """你是一位專業教育診斷員。請產出錯題報告：
+                    1. 題號與正確答案。
+                    2. 知識點名稱。
+                    3. 【內容敘述】：詳述學生的具體錯誤點（例如：對「密度」定義理解相反、漏看題目中的「不正確」選項）。
+                    要求：敘述必須讓導師能據此輔導，禁止美化語言，嚴禁編造頁碼。"""
                 else:
-                    prompt = """你是一位專業理科教師。請針對影像中的手寫計算題執行：
-                    1. 檢測學生運算步驟。
-                    2. 比對正確公式與計算數值。
-                    3. 指出具體的計算錯誤位置（如：移項錯誤、單位未換算）。
-                    4. 列出正確解題邏輯。
-                    要求：事實導向，詳盡敘述，禁止鼓勵語，嚴禁編造頁碼。"""
+                    prompt = """你是一位數理診斷專家。請針對手寫計算過程進行：
+                    1. 驗證學生的計算路徑。
+                    2. 【詳盡分析】：點出錯誤發生的具體步驟（例如：在第三行移項時正負號帶錯、單位換算錯誤）。
+                    3. 指出正確邏輯與指導動作。
+                    要求：事實敘述必須具備教學指導價值，去美化，嚴禁編造頁碼。"""
                 
                 v_res = ai_engine.generate_content([prompt, img])
                 st.session_state.v_obs = v_res.text
         
-        obs = st.text_area("🔍 錯誤事實紀錄", value=st.session_state.v_obs, height=450)
+        obs = st.text_area("🔍 錯誤事實與指導內容 (可手動補充細節)", value=st.session_state.v_obs, height=450)
 
         if st.button("🚀 同步至戰情庫"):
             if stu_id and obs:
-                with st.spinner("歸檔中..."):
-                    diag = ai_engine.generate_content(f"基於事實：{obs}。提供具備指導價值的複習建議，去美化，嚴禁頁碼。").text
+                with st.spinner("數據歸檔中..."):
+                    diag = ai_engine.generate_content(f"基於以下事實敘述：{obs}。請產出詳盡且具指導意義的 200 字補強建議。要求：去美化，嚴禁頁碼。").text
                     hub_sheet.append_row([datetime.now().strftime("%Y-%m-%d %H:%M"), stu_id, subject, exam_range, score, obs, diag])
                     st.success("✅ 數據已歸檔！"); st.session_state.v_obs = ""
-            else: st.warning("請填寫必要欄位。")
+            else: st.warning("請完整輸入資料。")
         st.markdown('</div>', unsafe_allow_html=True)
 
-# --- Tab 2 & 3: 數據瀏覽與分析 (保持科目過濾) ---
+# --- Tab 2: 歷史數據庫 ---
 with tab_view:
     if hub_sheet:
-        if st.button("🔄 刷新庫"): st.rerun()
+        if st.button("🔄 刷新紀錄庫"): st.rerun()
         raw_df = pd.DataFrame(hub_sheet.get_all_records())
-        if not raw_df.empty: st.dataframe(raw_df.sort_values(by="日期時間", ascending=False), use_container_width=True)
+        if not raw_df.empty:
+            st.dataframe(raw_df.sort_values(by="日期時間", ascending=False), use_container_width=True)
 
+# --- Tab 3: 戰術分析室 (歷史明細保留科目過濾與詳盡敘述) ---
 with tab_analysis:
     if hub_sheet:
         raw_data = hub_sheet.get_all_records()
@@ -119,26 +124,29 @@ with tab_analysis:
             df = pd.DataFrame(raw_data)
             df['成績'] = pd.to_numeric(df['測驗成績'], errors='coerce').fillna(0)
             stu_list = df['學生代號'].unique()
-            sel_stu = st.selectbox("🎯 選擇學生代號", stu_list)
+            sel_stu = st.selectbox("🎯 選擇受測學生代號", stu_list)
             stu_df = df[df['學生代號'] == sel_stu].sort_values('日期時間', ascending=False)
             
             if not stu_df.empty:
-                st.subheader("📊 學期分科數據分布")
+                # 雷達圖
                 avg_scores = stu_df.groupby('學科類別')['成績'].mean().reset_index()
                 fig_radar = px.line_polar(avg_scores, r='成績', theta='學科類別', line_close=True, range_r=[0,100])
                 fig_radar.update_traces(fill='toself', line_color='#88c0d0')
                 st.plotly_chart(fig_radar, use_container_width=True)
                 
                 st.divider()
-                st.markdown(f"### 📋 {sel_stu} 歷史紀錄明細查詢")
+                st.markdown(f"### 📋 {sel_stu} 歷史診斷明細回溯")
+                
+                # 科目選單過濾
                 sub_list_hist = sorted(list(stu_df['學科類別'].unique()))
-                sel_sub_hist = st.selectbox("🔍 選擇科目明細：", sub_list_hist, key="hist_filter")
+                sel_sub_hist = st.selectbox("🔍 選擇欲檢視的科目明細：", sub_list_hist)
                 
                 for _, row in stu_df[stu_df['學科類別'] == sel_sub_hist].iterrows():
                     st.markdown(f"""
                     <div class="range-card">
                         <b>🎯 範圍：{row["考試範圍"]}</b> ({row["測驗成績"]}分)<br>
-                        <p style="margin-top:10px;"><b>事實分析紀錄：</b><br>{row["導師觀察摘要"].replace("\n", "<br>")}</p>
+                        <p style="margin-top:10px;"><b>[ 錯題分析內容敘述 ]</b><br>{row["導師觀察摘要"].replace("\n", "<br>")}</p>
+                        <p style="color: #88c0d0;"><b>[ 補強指導指引 ]</b><br>{row["AI診斷與建議"].replace("\n", "<br>")}</p>
                     </div>
                     """, unsafe_allow_html=True)
         else: st.info("💡 資料庫尚無數據。")
